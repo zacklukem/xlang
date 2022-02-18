@@ -1,0 +1,330 @@
+use crate::ast::*;
+use std::rc::Rc;
+
+grammar(source: &Rc<Source>);
+
+Ident: Ident = {
+    <span: Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> => Ident { span }
+};
+
+Name: Name = {
+    Ident => Name::Ident(<>),
+    Ident Span<"::"> SpanBox<Name> => Name::Namespace(<>),
+};
+
+Pattern: Pattern = {
+    Span<"("> Vec1<Spanned<Pattern>, ","> Span<")"> => Pattern::Tuple(<>),
+    Ident => Pattern::Ident(<>),
+};
+
+SelfType: SelfType = {
+    "*" "self" => SelfType::Star,
+    "*" "mut" "self" => SelfType::StarMut,
+};
+
+TypedIdent: (Ident, SpanBox<Type>) = {
+    <Ident> ":" <SpanBox<Type>> => (<>),
+};
+
+FunParams: (Option<Spanned<SelfType>>, SpanVec<(Ident, SpanBox<Type>)>) = {
+    <self_type: Spanned<SelfType>> "," <params: Vec0<Spanned<TypedIdent>, ",">> =>
+        (Some(self_type), params),
+    <self_type: Spanned<SelfType>> => (Some(self_type), vec![]),
+    <params: Vec0<Spanned<TypedIdent>, ",">> => (None, params)
+};
+
+FunFinally: FunFinally = {
+    "finally" <block: SpanBox<Block>> => FunFinally { <> },
+};
+
+FunBlock: FunBlock = {
+    "{" <stmts: Spanned<Stmt>*> <finally: FunFinally?> "}" => FunBlock{<>},
+};
+
+pub Module: Module = {
+    <top_stmts: Spanned<TopStmt>*> => Module { <> },
+}
+
+pub TopStmt: TopStmt = {
+    <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <name: SpanBox<Name>> "(" <params: FunParams> ")"
+        <return_type: ("->" <SpanBox<Type>>)?> <body: SpanBox<FunBlock>> => TopStmt::Fun {<>},
+    <pub_tok: Span<"pub">?> <struct_tok: Span<"struct">> <name: SpanBox<Name>> "{"
+        <members: Vec0<Spanned<TypedIdent>, ",">> "}" => TopStmt::Struct {<>},
+};
+
+Block: Stmt = {
+    <Span<"{">> <Spanned<Stmt>*> <Span<"}">> => Stmt::Block(<>),
+};
+
+IfStmt: Stmt = {
+    <if_tok: Span<"if">> <condition: SpanBox<Expr>> <block: SpanBox<Block>>
+        <else_block: ("else" <SpanBox<IfStmt>>)?> => Stmt::If { <> },
+    Block
+};
+
+pub Stmt: Stmt = {
+    <label: (<Ident> ":")?> <while_tok: Span<"while">> <condition: SpanBox<Expr>>
+        <block: SpanBox<Block>> => Stmt::While {<>},
+
+    <label: (<Ident> ":")?> <loop_tok: Span<"loop">> <block: SpanBox<Block>> => Stmt::Loop {<>},
+
+    <label: (<Ident> ":")?> <for_tok: Span<"for">> <initializer: SpanBox<Pattern>>
+        <in_tok: Span<"in">> <range: SpanBox<Expr>> <block: SpanBox<Block>> => Stmt::ForRange {<>},
+
+    <let_tok: Span<"let">> <pattern: SpanBox<Pattern>> <type_name: (":" <SpanBox<Type>>)?>
+        <eq_tok: Span<"=">> <expr: SpanBox<Expr>> ";" => Stmt::Let {<>},
+
+    <Span<"return">> <SpanBox<Expr>?> ";" => Stmt::Return(<>),
+    <Span<"continue">> <Ident?> ";" => Stmt::Continue(<>),
+    <Span<"break">> <Ident?> ";" => Stmt::Break(<>),
+
+    <SpanBox<Expr>> ";" => Stmt::Expr(<>),
+
+    IfStmt
+};
+
+pub Expr = Assign;
+
+AssignOp: AssignOp = {
+    "=" => AssignOp::Eq,
+    "+=" => AssignOp::AddEq,
+    "-=" => AssignOp::SubEq,
+    "*=" => AssignOp::MulEq,
+    "/=" => AssignOp::DivEq,
+    "%=" => AssignOp::ModEq,
+    "^=" => AssignOp::XorEq,
+    "&=" => AssignOp::AndEq,
+    "|=" => AssignOp::OrEq,
+};
+
+Assign: Expr = {
+    SpanBox<Ternary> Spanned<AssignOp> SpanBox<Ternary> => Expr::Assign(<>),
+    Ternary
+};
+
+Ternary: Expr = {
+    <if_tok: Span<"if">> <condition: SpanBox<LogOr>> <then_tok: Span<"then">>
+    <then_expr: SpanBox<LogOr>> <else_tok: Span<"else">> <else_expr: SpanBox<LogOr>> =>
+        Expr::Ternary { <> },
+    LogOr,
+};
+
+BinaryTier<Op, NextTier>: Expr = {
+    SpanBox<BinaryTier<Op, NextTier>> Spanned<Op> SpanBox<NextTier> => Expr::Binary(<>),
+    NextTier
+};
+
+LogOr = BinaryTier<LogOrOp, LogAnd>;
+LogAnd = BinaryTier<LogAndOp, BitOr>;
+BitOr = BinaryTier<BitOrOp, BitXor>;
+BitXor = BinaryTier<BitXorOp, BitAnd>;
+BitAnd = BinaryTier<BitAndOp, Equality>;
+Equality = BinaryTier<EqualityOp, Compare>;
+Compare = BinaryTier<CompareOp, Shift>;
+Shift =  BinaryTier<ShiftOp, AddSub>;
+AddSub = BinaryTier<AddSubOp, Factor>;
+Factor = BinaryTier<FactorOp, Term>;
+
+LogOrOp: BinOp = {
+    "||" => BinOp::OrOr,
+};
+
+LogAndOp: BinOp = {
+    "&&" => BinOp::AndAnd,
+};
+
+BitOrOp: BinOp = {
+    "|" => BinOp::Or,
+};
+
+BitXorOp: BinOp = {
+    "^" => BinOp::Xor,
+};
+
+BitAndOp: BinOp = {
+    "&" => BinOp::And,
+};
+
+EqualityOp: BinOp = {
+    "==" => BinOp::EqEq,
+    "!=" => BinOp::NotEq,
+};
+
+CompareOp: BinOp = {
+    "<" => BinOp::Lt,
+    ">" => BinOp::Gt,
+    "<=" => BinOp::LtEq,
+    ">=" => BinOp::GtEq,
+};
+
+ShiftOp: BinOp = {
+    "<<" => BinOp::Shl,
+    ">>" => BinOp::Shr,
+};
+
+AddSubOp: BinOp = {
+    "+" => BinOp::Add,
+    "-" => BinOp::Sub,
+};
+
+FactorOp: BinOp = {
+    "*" => BinOp::Mul,
+    "/" => BinOp::Div,
+    "%" => BinOp::Mod,
+};
+
+Term: Expr = {
+    SpanBox<Term> Span<"as"> SpanBox<Type> => Expr::Cast(<>),
+    Range
+};
+
+Range: Expr = {
+    Span<"@@"> => Expr::Range(Range::All(<>)),
+    SpanBox<UnaryPrefix> Span<".."> SpanBox<UnaryPrefix> => Expr::Range(Range::Full(<>)),
+    SpanBox<UnaryPrefix> Span<"..@"> => Expr::Range(Range::Start(<>)),
+    Span<"@.."> SpanBox<UnaryPrefix> => Expr::Range(Range::End(<>)),
+    UnaryPrefix
+};
+
+UnaryOp: UnaryOp = {
+    "-" => UnaryOp::Neg,
+    "!" => UnaryOp::LogNot,
+    "~" => UnaryOp::BitNot,
+    "*" => UnaryOp::Deref,
+    "&" => UnaryOp::Ref,
+    "&" "mut" => UnaryOp::RefMut,
+};
+
+UnaryPrefix: Expr = {
+    Spanned<UnaryOp> SpanBox<UnaryPrefix> => Expr::Unary(<>),
+    PrimaryExpr
+};
+
+StructMember: (Ident, SpanBox<Expr>) = {
+    <Ident> ":" <SpanBox<Expr>> => (<>),
+};
+
+PrimaryExpr: Expr = {
+    Name => Expr::Ident(<>),
+    <span: Span<"self">> => Expr::Ident(Name::Ident(Ident { span })),
+    Span<r"[0-9]+"> => Expr::Integer(<>, IntegerSpecifier::None),
+    Span<r"[0-9]+\.[0-9]*"> => Expr::Float(<>, FloatSpecifier::None),
+    <open_paren: Span<"(">> <mut members: Vec0<Spanned<Expr>, ",">> <close_paren: Span<")">> => {
+        match members.len() {
+            0 => panic!("error"),
+            1 => members.pop().unwrap().value,
+            _ => Expr::Tuple(<>),
+        }
+    },
+    Span<"true"> => Expr::Bool(<>, true),
+    Span<"false"> => Expr::Bool(<>, false),
+    Span<r#""[^"]*""#> => Expr::String(<>),
+
+    SpanBox<PrimaryExpr> Span<"."> Ident => Expr::Dot(<>),
+
+    <expr: SpanBox<PrimaryExpr>> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
+        <right_paren: Span<")">> => Expr::Call { <> },
+
+    <expr: SpanBox<PrimaryExpr>> <left_bracket: Span<"[">> <index: SpanBox<Expr>>
+        <right_bracket: Span<"]">> => Expr::Index { <> },
+
+    <left_bracket: Span<"[">> <members: Vec0<Spanned<Expr>, ",">>
+        <right_bracket: Span<"]">> => Expr::Array { <> },
+    <type_name: SpanBox<Name>> "of" <left_brace: Span<"{">> <members: Vec0<Spanned<StructMember>, ",">>
+        <right_brace: Span<"}">> => Expr::Struct { <> },
+};
+
+pub Type: Type = {
+    // Primitive
+    Spanned<PrimitiveType> => Type::Primitive(<>),
+    // Named
+    SpanBox<Name> => Type::Named(<>),
+    // Pointer
+    Spanned<PointerType> SpanBox<Type> => Type::Pointer(<>),
+
+    // Tuple
+    Span<"("> Vec1<Spanned<Type>, ","> Span<")"> => Type::Tuple(<>),
+
+    "fun" "(" <Vec0<Spanned<Type>, ",">> ")" <("->" <SpanBox<Type>>)?> => Type::Fun(<>),
+
+    // Sized Array
+    <left_bracket: Span<"[">> <size: SpanBox<Expr>> <right_bracket: Span<"]">>
+        <inner_type: SpanBox<Type>> => {
+        Type::SizedArray {<>}
+    },
+
+    // Unsized Array
+    <left_bracket: Span<"[">> <right_bracket: Span<"]">> <inner_type: SpanBox<Type>> => {
+        Type::UnsizedArray {<>}
+    },
+};
+
+PointerType: PointerType = {
+    "*" "mut" => PointerType::StarMut,
+    "*" => PointerType::Star,
+}
+
+PrimitiveType: PrimitiveType = {
+    "i8" => PrimitiveType::I8,
+    "i16" => PrimitiveType::I16,
+    "i32" => PrimitiveType::I32,
+    "i64" => PrimitiveType::I64,
+
+    "u8" => PrimitiveType::U8,
+    "u16" => PrimitiveType::U16,
+    "u32" => PrimitiveType::U32,
+    "u64" => PrimitiveType::U64,
+    "usize" => PrimitiveType::USize,
+
+    "f32" => PrimitiveType::F32,
+    "f64" => PrimitiveType::F64,
+
+    "bool" => PrimitiveType::Bool,
+};
+
+// Utilities
+
+Vec0<T, Sep>: Vec<T> = {
+    <mut v:(<T> Sep)*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+Vec1<T, Sep>: Vec<T> = {
+    <mut v:(<T> Sep)+> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+SpanBox<T>: SpanBox<T> = {
+    <start: @L> <val: T> <end: @R> => Box::new(Spanned {
+        span: Span {start, end, source: source.clone()},
+        value: val,
+    })
+};
+
+Box<T>: Box<T> = {
+    <v: T> => Box::new(v),
+};
+
+Spanned<T>: Spanned<T> = {
+    <start: @L> <val: T> <end: @R> => Spanned {
+        span: Span {start, end, source: source.clone()},
+        value: val,
+    }
+};
+
+Span<T>: Span = {
+    <start: @L> T <end: @R> => Span {start, end, source: source.clone()},
+};
+
+// Num:  = <s:r"[0-9]+"> => i32::from_str(s).unwrap();
+

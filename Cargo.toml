@@ -1,0 +1,13 @@
+[package]
+name = "xlang"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+lalrpop = { version = "0.19.7", features = ["lexer"],  default-features = true }
+
+[dependencies]
+lalrpop-util = { version = "0.19.7", features = ["lexer"] }
+regex = "1"
+
