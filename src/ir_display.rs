@@ -1,0 +1,290 @@
+use crate::ir::*;
+use crate::symbol::{PointerType, Type};
+use std::fmt::{Display, Write};
+
+fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fmt::Result {
+    for (i, ty) in arr.iter().enumerate() {
+        ty.fmt(f)?;
+        if i != arr.len() - 1 {
+            f.write_str(", ")?;
+        }
+    }
+    Ok(())
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Primitive(pt) => write!(f, "{:?}", pt),
+            Type::Named(name) => write!(f, "{}", name),
+            Type::Pointer(PointerType::Star, ty) => write!(f, "*{}", ty),
+            Type::Pointer(PointerType::StarMut, ty) => write!(f, "*mut {}", ty),
+            Type::Tuple(tys) => {
+                f.write_str("(")?;
+                write_type_array(f, tys)?;
+                f.write_str(")")
+            }
+            Type::Fun(tys, ret) => {
+                f.write_str("(")?;
+                write_type_array(f, tys)?;
+                write!(f, ") -> {}", ret)
+            }
+            Type::SizedArray(size, ty) => write!(f, "[{}]{}", size, ty),
+            Type::UnsizedArray(ty) => write!(f, "[]{}", ty),
+            Type::Lhs(ty) => write!(f, "{}", ty),
+            Type::Range(ty) => write!(f, "range<{}>", ty),
+            Type::Err => write!(f, "ERR_TYPE"),
+        }
+    }
+}
+
+impl std::fmt::Debug for Fun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fun {}\n", self.name)?;
+
+        for (name, ty) in &self.variable_defs {
+            writeln!(f, "let {}: {}", name, ty)?;
+        }
+
+        let block_string = format!("{}", self.block);
+        let mut level = 0;
+        let mut last = '\0';
+
+        for c in block_string.chars() {
+            if c == '{' {
+                level += 1;
+            } else if c == '}' {
+                level -= 1;
+            }
+            if last == '\n' {
+                for _ in 0..level {
+                    f.write_str("    ")?;
+                }
+            }
+            f.write_char(c)?;
+            last = c;
+        }
+        f.write_char('\n')
+    }
+}
+
+impl Display for Stmt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
+impl Display for StmtKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StmtKind::If {
+                condition,
+                block,
+                else_block: Some(else_block),
+            } => write!(f, "if {} {} else {}", condition, block, else_block),
+
+            StmtKind::If {
+                condition,
+                block,
+                else_block: None,
+            } => write!(f, "if {} {}", condition, block),
+
+            StmtKind::While { condition, block } => write!(f, "while {} {}", condition, block),
+
+            StmtKind::For {
+                initializer,
+                condition,
+                incrementor,
+                block,
+            } => write!(
+                f,
+                "for {}; {}; {} {}",
+                initializer, condition, incrementor, block
+            ),
+
+            StmtKind::Labeled(label, Some(stmt)) => write!(f, "{}:\n{}", label, stmt),
+            StmtKind::Labeled(label, None) => write!(f, "{}:\n", label),
+
+            StmtKind::Block(stmts) => {
+                f.write_str("{\n")?;
+                for stmt in stmts {
+                    stmt.fmt(f)?;
+                    f.write_str("\n")?;
+                }
+                f.write_str("}")
+            }
+
+            StmtKind::StmtList(stmts) => {
+                f.write_str("/* Begin StmtList */\n")?;
+                for stmt in stmts {
+                    stmt.fmt(f)?;
+                    f.write_str("\n")?;
+                }
+                f.write_str("/* End StmtList */\n")
+            }
+            StmtKind::Return(Some(val)) => write!(f, "return {};", val),
+            StmtKind::Return(None) => write!(f, "return;"),
+            StmtKind::Goto(label) => write!(f, "goto {};", label),
+            StmtKind::Expr(expr) => write!(f, "{};", expr),
+        }
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // write!(f, "{}<{}>", self.kind(), self.ty())
+        write!(f, "{}", self.kind())
+    }
+}
+
+impl Display for IntegerSpecifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IntegerSpecifier::I8(val) => write!(f, "{}", val),
+            IntegerSpecifier::I16(val) => write!(f, "{}", val),
+            IntegerSpecifier::I32(val) => write!(f, "{}", val),
+            IntegerSpecifier::I64(val) => write!(f, "{}", val),
+            IntegerSpecifier::U8(val) => write!(f, "{}", val),
+            IntegerSpecifier::U16(val) => write!(f, "{}", val),
+            IntegerSpecifier::U32(val) => write!(f, "{}", val),
+            IntegerSpecifier::U64(val) => write!(f, "{}", val),
+            IntegerSpecifier::USize(val) => write!(f, "{}", val),
+            IntegerSpecifier::Signed(val) => write!(f, "{}", val),
+            IntegerSpecifier::Unsigned(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+impl Display for FloatSpecifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FloatSpecifier::F32(val) => write!(f, "{}", val),
+            FloatSpecifier::F64(val) => write!(f, "{}", val),
+        }
+    }
+}
+
+impl Display for AssignOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = match self {
+            AssignOp::Eq => "=",
+            AssignOp::AddEq => "+=",
+            AssignOp::SubEq => "-=",
+            AssignOp::MulEq => "*=",
+            AssignOp::DivEq => "/=",
+            AssignOp::ModEq => "%=",
+            AssignOp::XorEq => "^=",
+            AssignOp::AndEq => "&=",
+            AssignOp::OrEq => "|=",
+        };
+        f.write_str(v)
+    }
+}
+
+impl Display for BinOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = match self {
+            BinOp::Add => "+",
+            BinOp::Sub => "-",
+            BinOp::Mul => "*",
+            BinOp::Div => "/",
+            BinOp::Mod => "%",
+            BinOp::Xor => "^",
+            BinOp::Shl => "<<",
+            BinOp::Shr => ">>",
+            BinOp::And => "&",
+            BinOp::Or => "|",
+            BinOp::AndAnd => "&&",
+            BinOp::OrOr => "||",
+            BinOp::Lt => "<",
+            BinOp::Gt => ">",
+            BinOp::LtEq => "<=",
+            BinOp::GtEq => ">=",
+            BinOp::EqEq => "==",
+            BinOp::NotEq => "!=",
+        };
+        f.write_str(v)
+    }
+}
+
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let v = match self {
+            UnaryOp::Neg => "-",
+            UnaryOp::LogNot => "!",
+            UnaryOp::BitNot => "~",
+            UnaryOp::Deref => "*",
+            UnaryOp::Ref => "&",
+            UnaryOp::RefMut => "&mut ",
+        };
+        f.write_str(v)
+    }
+}
+
+fn write_expr_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Expr>) -> std::fmt::Result {
+    for (i, ty) in arr.iter().enumerate() {
+        ty.fmt(f)?;
+        if i != arr.len() - 1 {
+            f.write_str(", ")?;
+        }
+    }
+    Ok(())
+}
+
+impl Display for ExprKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExprKind::Ident(val) => val.fmt(f),
+            ExprKind::Integer(val) => val.fmt(f),
+            ExprKind::Float(val) => val.fmt(f),
+            ExprKind::String(string) => f.write_str(&string),
+            ExprKind::Bool(true) => f.write_str("true"),
+            ExprKind::Bool(false) => f.write_str("false"),
+            ExprKind::LhsExpr(expr) => write!(f, "/*lhs*/({})", expr),
+            ExprKind::Tuple(exprs) => {
+                f.write_str("(")?;
+                write_expr_array(f, exprs)?;
+                f.write_str(")")
+            }
+            ExprKind::Assign(lhs, op, rhs) => write!(f, "{} {} {}", lhs, op, rhs),
+            ExprKind::Binary(lhs, op, rhs) => write!(f, "({} {} {})", lhs, op, rhs),
+            ExprKind::Unary(op, rhs) => write!(f, "({}{})", op, rhs),
+            ExprKind::Dot(lhs, rhs) => write!(f, "{}.{}", lhs, rhs),
+            ExprKind::Cast(lhs, ty) => write!(f, "({} as {})", lhs, ty),
+            ExprKind::Range(low, high) => write!(f, "({}..{})", low, high),
+            ExprKind::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => write!(
+                f,
+                "(if {} then {} else {})",
+                condition, then_expr, else_expr
+            ),
+            ExprKind::Call { expr, arguments } => {
+                expr.fmt(f)?;
+                f.write_str("(")?;
+                write_expr_array(f, arguments)?;
+                f.write_str(")")
+            }
+            ExprKind::Index { expr, index } => write!(f, "{}[{}]", expr, index),
+            ExprKind::Array { members } => {
+                f.write_str("[")?;
+                write_expr_array(f, members)?;
+                f.write_str("]")
+            }
+            ExprKind::Struct { type_name, members } => {
+                type_name.fmt(f)?;
+                f.write_str(" of {")?;
+                for (i, (name, val)) in members.iter().enumerate() {
+                    write!(f, "{}: {}", name, val)?;
+                    if i != members.len() - 1 {
+                        f.write_str(", ")?;
+                    }
+                }
+                f.write_str("}")
+            }
+            ExprKind::Err => f.write_str("ERR_EXPR"),
+        }
+    }
+}

@@ -71,7 +71,7 @@ pub Stmt: Stmt = {
     <label: (<Ident> ":")?> <for_tok: Span<"for">> <initializer: SpanBox<Pattern>>
         <in_tok: Span<"in">> <range: SpanBox<Expr>> <block: SpanBox<Block>> => Stmt::ForRange {<>},
 
-    <let_tok: Span<"let">> <pattern: SpanBox<Pattern>> <type_name: (":" <SpanBox<Type>>)?>
+    <let_tok: Span<"let">> <mut_tok: Span<"mut">?> <pattern: SpanBox<Pattern>> <type_name: (":" <SpanBox<Type>>)?>
         <eq_tok: Span<"=">> <expr: SpanBox<Expr>> ";" => Stmt::Let {<>},
 
     <Span<"return">> <SpanBox<Expr>?> ";" => Stmt::Return(<>),

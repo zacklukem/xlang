@@ -149,6 +149,7 @@ pub enum Stmt {
 
     Let {
         let_tok: Span,
+        mut_tok: Option<Span>,
         pattern: SpanBox<Pattern>,
         type_name: Option<SpanBox<Type>>,
         eq_tok: Span,

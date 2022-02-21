@@ -2,24 +2,68 @@ use crate::ast;
 use crate::const_eval::ConstEvaluator;
 use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub enum PrimitiveType {
-    I8,
-    I16,
-    I32,
-    I64,
+    Void,
+    Bool,
 
-    U8,
-    U16,
-    U32,
-    U64,
+    F64,
+    F32,
+
+    I64,
+    I32,
+    I16,
+    I8,
+
     USize,
 
-    F32,
-    F64,
+    U64,
+    U32,
+    U16,
+    U8,
 
-    Bool,
-    Void,
+    Integer,
+}
+
+impl PrimitiveType {
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32
+            | PrimitiveType::I64
+            | PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64
+            | PrimitiveType::USize
+            | PrimitiveType::Integer
+            | PrimitiveType::F32
+            | PrimitiveType::F64 => true,
+            _ => false,
+        }
+    }
+    pub fn is_float(&self) -> bool {
+        match self {
+            PrimitiveType::F32 | PrimitiveType::F64 => true,
+            _ => false,
+        }
+    }
+    pub fn is_integral(&self) -> bool {
+        match self {
+            PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::I32
+            | PrimitiveType::I64
+            | PrimitiveType::U8
+            | PrimitiveType::U16
+            | PrimitiveType::U32
+            | PrimitiveType::U64
+            | PrimitiveType::USize
+            | PrimitiveType::Integer => true,
+            _ => false,
+        }
+    }
 }
 
 impl From<&ast::PrimitiveType> for PrimitiveType {
@@ -42,7 +86,7 @@ impl From<&ast::PrimitiveType> for PrimitiveType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PointerType {
     StarMut,
     Star,
@@ -63,7 +107,7 @@ pub struct TyCtx {
 }
 
 /// Semantic type values
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Primitive(PrimitiveType),
     Named(Name),
@@ -72,6 +116,7 @@ pub enum Type {
     Fun(Vec<Type>, Box<Type>),
     SizedArray(usize, Box<Type>),
     UnsizedArray(Box<Type>),
+    Range(Box<Type>),
     Lhs(Box<Type>),
     Err,
 }
@@ -83,6 +128,13 @@ impl Type {
 
     pub fn mut_ptr(&self) -> Type {
         Type::Pointer(PointerType::StarMut, Box::new(self.clone()))
+    }
+
+    pub fn is_numeric(&self) -> bool {
+        match self {
+            Type::Primitive(x) => x.is_numeric(),
+            _ => false,
+        }
     }
 
     pub fn from_ast_type(ty: &ast::Type, const_eval: &ConstEvaluator) -> Self {
@@ -118,13 +170,32 @@ impl Type {
 
 /// Represents a name (foo::bar) contained in a namespace.
 /// This is agnostic to the scope of the name
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Name {
     Ident(String),
     Namespace(String, Box<Name>),
 }
 
+impl std::fmt::Display for Name {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Name::Ident(string) => write!(f, "{}", string),
+            Name::Namespace(string, name) => write!(f, "{}::{}", string, name),
+        }
+    }
+}
+
 impl Name {
+    /// Return new Name `<self>::<end>`
+    pub fn with_end(&self, end: Name) -> Name {
+        match self {
+            Name::Ident(name) => Name::Namespace(name.clone(), Box::new(end)),
+            Name::Namespace(id, child) => {
+                Name::Namespace(id.clone(), Box::new(child.with_end(end)))
+            }
+        }
+    }
+
     pub fn is_ident(&self) -> bool {
         matches!(self, Name::Ident(_))
     }
@@ -249,5 +320,15 @@ impl Symbol {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_primitive_ord() {
+        use super::PrimitiveType::*;
+        assert!(Void < Bool);
+        assert!(Integer > USize);
     }
 }

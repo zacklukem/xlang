@@ -10,10 +10,12 @@ pub enum MsgKind {
 
 impl ErrorContext {
     pub fn emit(&mut self, kind: MsgKind, msg: String, span: &ast::Span) {
-        todo!("{} {:?}", msg, span);
+        println!("ERROR: {} {:?}", msg, span);
+        panic!();
     }
 
     pub fn err(&mut self, msg: String, span: &ast::Span) {
-        todo!("{} {:?}", msg, span);
+        println!("ERROR: {} {:?}", msg, span);
+        panic!();
     }
 }

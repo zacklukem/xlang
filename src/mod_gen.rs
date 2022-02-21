@@ -4,33 +4,33 @@ use crate::ir;
 use crate::ir_gen;
 use crate::symbol as sym;
 
-pub struct TypeChecker<'tyc> {
-    ast_module: &'tyc ast::Module,
-    module: &'tyc mut ir::Module,
-    err: &'tyc mut ErrorContext,
+pub struct ModGen<'mg> {
+    ast_module: &'mg ast::Module,
+    module: &'mg mut ir::Module,
+    err: &'mg mut ErrorContext,
 }
 
 #[derive(Debug)]
-pub enum TypeCheckerError {
+pub enum ModGenError {
     UnableToDeclare,
 }
 
-impl From<sym::SymbolDeclError> for TypeCheckerError {
+impl From<sym::SymbolDeclError> for ModGenError {
     fn from(sde: sym::SymbolDeclError) -> Self {
         match sde {
-            sym::SymbolDeclError::AlreadyExists => TypeCheckerError::UnableToDeclare,
-            sym::SymbolDeclError::InvalidName => TypeCheckerError::UnableToDeclare,
+            sym::SymbolDeclError::AlreadyExists => ModGenError::UnableToDeclare,
+            sym::SymbolDeclError::InvalidName => ModGenError::UnableToDeclare,
         }
     }
 }
 
-impl<'tyc> TypeChecker<'tyc> {
+impl<'mg> ModGen<'mg> {
     pub fn new(
-        module: &'tyc mut ir::Module,
-        err: &'tyc mut ErrorContext,
-        ast_module: &'tyc ast::Module,
-    ) -> TypeChecker<'tyc> {
-        TypeChecker {
+        module: &'mg mut ir::Module,
+        err: &'mg mut ErrorContext,
+        ast_module: &'mg ast::Module,
+    ) -> ModGen<'mg> {
+        ModGen {
             ast_module,
             module,
             err,
@@ -46,7 +46,7 @@ impl<'tyc> TypeChecker<'tyc> {
         self.module.ty_ctx_mut().root.declare(name, symbol)
     }
 
-    pub fn run(&mut self) -> Result<(), TypeCheckerError> {
+    pub fn run(&mut self) -> Result<(), ModGenError> {
         self.declare_types()?;
         self.define_types()?;
         self.gen_ir()?;
@@ -54,7 +54,7 @@ impl<'tyc> TypeChecker<'tyc> {
     }
 
     /// First pass, declare all struct types
-    fn declare_types(&mut self) -> Result<(), TypeCheckerError> {
+    fn declare_types(&mut self) -> Result<(), ModGenError> {
         for stmt in &self.ast_module.top_stmts {
             let stmt = &stmt.value;
             match stmt {
@@ -72,7 +72,7 @@ impl<'tyc> TypeChecker<'tyc> {
                         },
                     );
                     self.declare(&name, symbol)
-                        .map_err(Into::<TypeCheckerError>::into)?;
+                        .map_err(Into::<ModGenError>::into)?;
                 }
                 // ignore other top level stmts
                 _ => (),
@@ -82,7 +82,7 @@ impl<'tyc> TypeChecker<'tyc> {
     }
 
     /// second pass, define all types (including function types)
-    fn define_types(&mut self) -> Result<(), TypeCheckerError> {
+    fn define_types(&mut self) -> Result<(), ModGenError> {
         for stmt in &self.ast_module.top_stmts {
             let stmt = &stmt.value;
             match stmt {
@@ -107,7 +107,7 @@ impl<'tyc> TypeChecker<'tyc> {
         ast_fun_name: &ast::Spanned<ast::Name>,
         (self_type, params): &ast::FunParams,
         return_type: &Option<ast::SpanBox<ast::Type>>,
-    ) -> Result<(), TypeCheckerError> {
+    ) -> Result<(), ModGenError> {
         let fun_name: sym::Name = ast_fun_name.value().into();
         let self_param = if self_type.is_some() {
             if fun_name.is_ident() {
@@ -122,7 +122,7 @@ impl<'tyc> TypeChecker<'tyc> {
                     Some(symbol_info)
                         if matches!(symbol_info.symbol, sym::Symbol::Struct { .. }) =>
                     {
-                        Some(sym::Type::Named(struct_name))
+                        Some(sym::Type::Named(struct_name).ptr())
                     }
                     _ => {
                         self.err.err(
@@ -173,7 +173,7 @@ impl<'tyc> TypeChecker<'tyc> {
         &mut self,
         ast_struct_name: &ast::Spanned<ast::Name>,
         members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Type>)>,
-    ) -> Result<(), TypeCheckerError> {
+    ) -> Result<(), ModGenError> {
         let struct_name = ast_struct_name.value().into();
         let sym = self.module.ty_ctx.root.resolve_mut(&struct_name).unwrap();
         if let sym::Symbol::Struct {
@@ -203,7 +203,7 @@ impl<'tyc> TypeChecker<'tyc> {
         Ok(())
     }
 
-    fn gen_ir(&mut self) -> Result<(), TypeCheckerError> {
+    fn gen_ir(&mut self) -> Result<(), ModGenError> {
         for stmt in &self.ast_module.top_stmts {
             match &stmt.value {
                 ast::TopStmt::Fun { name, body, .. } => {
@@ -220,7 +220,7 @@ impl<'tyc> TypeChecker<'tyc> {
         &mut self,
         name: sym::Name,
         body: &ast::SpanBox<ast::FunBlock>,
-    ) -> Result<(), TypeCheckerError> {
+    ) -> Result<(), ModGenError> {
         let fun_type = &self.module.ty_ctx.root.resolve(&name).unwrap().symbol;
         let (params, return_type) = if let sym::Symbol::Fun {
             params,
