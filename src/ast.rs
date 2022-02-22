@@ -2,6 +2,57 @@ use std::rc::Rc;
 
 pub struct Source {
     pub source_string: String,
+    /// Indices of first char in each line
+    line_starts: Vec<usize>,
+}
+
+impl Source {
+    pub fn new(source_string: String) -> Source {
+        let mut line_starts = Vec::new();
+
+        {
+            line_starts.push(0);
+            for (idx, ch) in source_string.chars().enumerate() {
+                if ch == '\n' {
+                    line_starts.push(idx + 1);
+                }
+            }
+        }
+
+        Source {
+            source_string,
+            line_starts,
+        }
+    }
+
+    pub fn print_msg(&self, (start, end): (usize, usize), msg: &str) {
+        let (line_num, col) = self.line_col(start);
+        let line_start = self.line_starts[line_num - 1];
+        let line_end = self.line_starts[line_num];
+        let line = &self.source_string[line_start..line_end];
+        let line = line.trim_end();
+        println!("     --> Error: {}:{}", line_num + 1, col);
+        print!("      | \n{:>5} | {}\n      | ", line_num + 1, line);
+        println!(
+            "{:left$}{:^>width$} {}\n      |",
+            "",
+            "",
+            msg,
+            left = col - 1,
+            width = end - start
+        );
+    }
+
+    pub fn line_col(&self, pos: usize) -> (usize, usize) {
+        let (line, idx) = self
+            .line_starts
+            .iter()
+            .enumerate()
+            .find(|(_, idx)| **idx > pos)
+            .unwrap();
+        let idx = self.line_starts[line - 1];
+        (line, (pos - idx) + 1)
+    }
 }
 
 #[derive(Clone)]
@@ -14,18 +65,30 @@ pub struct Span {
 impl Span {
     pub fn dummy() -> Span {
         Span {
-            source: Rc::new(Source {
-                source_string: String::new(),
-            }),
+            source: Rc::new(Source::new(String::new())),
             start: 0,
             end: 0,
         }
     }
+
+    pub fn print_msg(&self, msg: &str) {
+        self.source.print_msg(self.as_tuple(), msg)
+    }
+
+    pub fn as_tuple(&self) -> (usize, usize) {
+        (self.start, self.end)
+    }
+
     pub fn str(&self) -> &str {
         &self.source.source_string[self.start..self.end]
     }
+
     pub fn var_str(&self) -> String {
         format!("_{}", self.start)
+    }
+
+    pub fn line_col(&self) -> (usize, usize) {
+        self.source.line_col(self.start)
     }
 }
 
@@ -73,8 +136,8 @@ impl std::fmt::Debug for Ident {
 
 #[derive(Debug)]
 pub enum Name {
-    Ident(Ident),
-    Namespace(Ident, Span, SpanBox<Name>),
+    Ident(Ident, SpanVec<Type>),
+    Namespace(Ident, SpanVec<Type>, Span, SpanBox<Name>),
 }
 
 #[derive(Debug)]
@@ -112,6 +175,7 @@ pub enum TopStmt {
     Fun {
         pub_tok: Option<Span>,
         fun_tok: Span,
+        type_params: Vec<Span>,
         name: SpanBox<Name>,
         params: FunParams,
         return_type: Option<SpanBox<Type>>,
@@ -120,6 +184,7 @@ pub enum TopStmt {
     Struct {
         pub_tok: Option<Span>,
         struct_tok: Span,
+        type_params: Vec<Span>,
         name: SpanBox<Name>,
         members: SpanVec<(Ident, SpanBox<Type>)>,
     },

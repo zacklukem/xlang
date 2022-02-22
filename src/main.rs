@@ -20,13 +20,26 @@ fn main() {
 
     let source_string = include_str!("../linked_list.x");
 
-    let source = std::rc::Rc::new(ast::Source {
-        source_string: String::from(source_string),
-    });
+    let source = std::rc::Rc::new(ast::Source::new(String::from(source_string)));
 
-    let ast_module = parser::ModuleParser::new()
-        .parse(&source, source_string)
-        .unwrap();
+    let ast_module = parser::ModuleParser::new().parse(&source, source_string);
+
+    let ast_module = match ast_module {
+        Err(lalrpop_util::ParseError::UnrecognizedToken {
+            token: (start, token, end),
+            expected,
+        }) => {
+            let expected = expected.join(" | ");
+            let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
+            source.print_msg((start, end), &msg);
+            return;
+        }
+        Err(e) => {
+            println!("{:#?}", e);
+            return;
+        }
+        Ok(ast_module) => ast_module,
+    };
 
     let mut module = ir::Module::new();
 
@@ -36,6 +49,4 @@ fn main() {
     mod_gen.run().unwrap();
 
     println!("{:#?}", module.functions);
-
-    // println!("{:#?}", module);
 }

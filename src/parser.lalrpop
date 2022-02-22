@@ -7,9 +7,14 @@ Ident: Ident = {
     <span: Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> => Ident { span }
 };
 
+NameTypeParams: SpanVec<Type> = {
+    "::" "<" <Vec0<Spanned<Type>, ",">> ">" => <>
+}
+
 Name: Name = {
-    Ident => Name::Ident(<>),
-    Ident Span<"::"> SpanBox<Name> => Name::Namespace(<>),
+    <id: Ident> <tp: NameTypeParams?> => Name::Ident(id, tp.unwrap_or_default()),
+    <id: Ident> <tp: NameTypeParams?> <cc: Span<"::">> <next: SpanBox<Name>> =>
+        Name::Namespace(id, tp.unwrap_or_default(), cc, next),
 };
 
 Pattern: Pattern = {
@@ -45,10 +50,14 @@ pub Module: Module = {
     <top_stmts: Spanned<TopStmt>*> => Module { <> },
 }
 
+DeclTypeParams: Vec<Span> = {
+    "<" <Vec0<Span<r"[_a-zA-Z][_a-zA-Z0-9]*">, ",">> ">" => <>,
+}
+
 pub TopStmt: TopStmt = {
-    <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <name: SpanBox<Name>> "(" <params: FunParams> ")"
+    <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <type_params: DeclTypeParams> <name: SpanBox<Name>> "(" <params: FunParams> ")"
         <return_type: ("->" <SpanBox<Type>>)?> <body: SpanBox<FunBlock>> => TopStmt::Fun {<>},
-    <pub_tok: Span<"pub">?> <struct_tok: Span<"struct">> <name: SpanBox<Name>> "{"
+    <pub_tok: Span<"pub">?> <struct_tok: Span<"struct">> <type_params: DeclTypeParams> <name: SpanBox<Name>> "{"
         <members: Vec0<Spanned<TypedIdent>, ",">> "}" => TopStmt::Struct {<>},
 };
 
@@ -207,7 +216,7 @@ StructMember: (Ident, SpanBox<Expr>) = {
 
 PrimaryExpr: Expr = {
     Name => Expr::Ident(<>),
-    <span: Span<"self">> => Expr::Ident(Name::Ident(Ident { span })),
+    <span: Span<"self">> => Expr::Ident(Name::Ident(Ident { span }, Vec::new())),
     Span<r"[0-9]+"> => Expr::Integer(<>, IntegerSpecifier::None),
     Span<r"[0-9]+\.[0-9]*"> => Expr::Float(<>, FloatSpecifier::None),
     <open_paren: Span<"(">> <mut members: Vec0<Spanned<Expr>, ",">> <close_paren: Span<")">> => {

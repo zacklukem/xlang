@@ -1,5 +1,6 @@
 use crate::ast;
 use crate::const_eval::ConstEvaluator;
+use crate::ir_display::type_array_str;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
@@ -142,7 +143,7 @@ impl Type {
         let to_ast_type = |v: &ast::Spanned<ast::Type>| Type::from_ast_type(v.value(), const_eval);
         match ty {
             ast::Type::Primitive(ty) => Type::Primitive(ty.value().into()),
-            ast::Type::Named(name) => Type::Named(name.value().into()),
+            ast::Type::Named(name) => Type::Named(Name::from_ast_name(name.value(), const_eval)),
             ast::Type::Pointer(ptr_type, inner_type) => {
                 Type::Pointer(ptr_type.value().into(), Box::new(to_ast_type(inner_type)))
             }
@@ -173,15 +174,21 @@ impl Type {
 /// This is agnostic to the scope of the name
 #[derive(Debug, Clone, PartialEq)]
 pub enum Name {
-    Ident(String),
-    Namespace(String, Box<Name>),
+    Ident(String, Vec<Type>),
+    Namespace(String, Vec<Type>, Box<Name>),
 }
 
 impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Name::Ident(string) => write!(f, "{}", string),
-            Name::Namespace(string, name) => write!(f, "{}::{}", string, name),
+            Name::Ident(string, types) if types.is_empty() => write!(f, "{}", string),
+            Name::Ident(string, types) => write!(f, "{}<{}>", string, type_array_str(types)),
+            Name::Namespace(string, types, name) if types.is_empty() => {
+                write!(f, "{}::{}", string, name)
+            }
+            Name::Namespace(string, types, name) => {
+                write!(f, "{}<{}>::{}", string, type_array_str(types), name)
+            }
         }
     }
 }
@@ -190,35 +197,47 @@ impl Name {
     /// Return new Name `<self>::<end>`
     pub fn with_end(&self, end: Name) -> Name {
         match self {
-            Name::Ident(name) => Name::Namespace(name.clone(), Box::new(end)),
-            Name::Namespace(id, child) => {
-                Name::Namespace(id.clone(), Box::new(child.with_end(end)))
+            Name::Ident(name, types) => Name::Namespace(name.clone(), types.clone(), Box::new(end)),
+            Name::Namespace(id, types, child) => {
+                Name::Namespace(id.clone(), types.clone(), Box::new(child.with_end(end)))
             }
         }
     }
 
     pub fn is_ident(&self) -> bool {
-        matches!(self, Name::Ident(_))
+        matches!(self, Name::Ident(_, _))
     }
 
     pub fn pop_end(&self) -> Option<Name> {
         match self {
-            Name::Ident(_) => None,
-            Name::Namespace(id, child) if child.is_ident() => Some(Name::Ident(id.clone())),
-            Name::Namespace(id, child) => {
-                Some(Name::Namespace(id.clone(), Box::new(child.pop_end()?)))
+            Name::Ident(_, _) => None,
+            Name::Namespace(id, types, child) if child.is_ident() => {
+                Some(Name::Ident(id.clone(), types.clone()))
             }
+            Name::Namespace(id, types, child) => Some(Name::Namespace(
+                id.clone(),
+                types.clone(),
+                Box::new(child.pop_end()?),
+            )),
         }
     }
-}
-
-impl From<&ast::Name> for Name {
-    fn from(name: &ast::Name) -> Self {
+    pub fn from_ast_name(name: &ast::Name, const_eval: &ConstEvaluator) -> Self {
         match name {
-            ast::Name::Ident(id) => Name::Ident(id.str().into()),
-            ast::Name::Namespace(id, _, name) => {
-                Name::Namespace(id.str().into(), Box::new(name.value().into()))
-            }
+            ast::Name::Ident(id, types) => Name::Ident(
+                id.str().into(),
+                types
+                    .iter()
+                    .map(|v| Type::from_ast_type(v.value(), const_eval))
+                    .collect(),
+            ),
+            ast::Name::Namespace(id, types, _, name) => Name::Namespace(
+                id.str().into(),
+                types
+                    .iter()
+                    .map(|v| Type::from_ast_type(v.value(), const_eval))
+                    .collect(),
+                Box::new(Self::from_ast_name(name.value(), const_eval)),
+            ),
         }
     }
 }
@@ -251,10 +270,12 @@ pub enum Symbol {
         symbols: HashMap<String, SymbolInfo>,
     },
     Struct {
+        types: Vec<String>,
         members: HashMap<String, Type>,
         symbols: HashMap<String, SymbolInfo>,
     },
     Fun {
+        types: Vec<String>,
         params: Vec<(String, Type)>,
         return_type: Box<Type>,
     },
@@ -275,8 +296,8 @@ impl Symbol {
     /// and would have a global name of `foo::bar::fizz`
     pub fn declare(&mut self, name: &Name, symbol: SymbolInfo) -> Result<(), SymbolDeclError> {
         match (name, self) {
-            (Name::Ident(id), Symbol::Mod { symbols })
-            | (Name::Ident(id), Symbol::Struct { symbols, .. }) => {
+            (Name::Ident(id, _), Symbol::Mod { symbols })
+            | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => {
                 if symbols.contains_key(id) {
                     Err(SymbolDeclError::AlreadyExists)
                 } else {
@@ -285,8 +306,8 @@ impl Symbol {
                 }
             }
 
-            (Name::Namespace(id, name), Symbol::Mod { symbols })
-            | (Name::Namespace(id, name), Symbol::Struct { symbols, .. }) => symbols
+            (Name::Namespace(id, types, name), Symbol::Mod { symbols })
+            | (Name::Namespace(id, types, name), Symbol::Struct { symbols, .. }) => symbols
                 .get_mut(id)
                 .ok_or(SymbolDeclError::InvalidName)?
                 .symbol
@@ -298,11 +319,11 @@ impl Symbol {
     /// Get a reference to the symbol at the given name (relative to self)
     pub fn resolve(&self, name: &Name) -> Option<&SymbolInfo> {
         match (name, self) {
-            (Name::Ident(id), Symbol::Mod { symbols })
-            | (Name::Ident(id), Symbol::Struct { symbols, .. }) => symbols.get(id),
+            (Name::Ident(id, _), Symbol::Mod { symbols })
+            | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => symbols.get(id),
 
-            (Name::Namespace(id, name), Symbol::Mod { symbols })
-            | (Name::Namespace(id, name), Symbol::Struct { symbols, .. }) => {
+            (Name::Namespace(id, _, name), Symbol::Mod { symbols })
+            | (Name::Namespace(id, _, name), Symbol::Struct { symbols, .. }) => {
                 symbols.get(id)?.symbol.resolve(name)
             }
             _ => None,
@@ -312,11 +333,11 @@ impl Symbol {
     /// Get a mutable reference to the symbol at the given name (relative to self)
     pub fn resolve_mut(&mut self, name: &Name) -> Option<&mut SymbolInfo> {
         match (name, self) {
-            (Name::Ident(id), Symbol::Mod { symbols })
-            | (Name::Ident(id), Symbol::Struct { symbols, .. }) => symbols.get_mut(id),
+            (Name::Ident(id, _), Symbol::Mod { symbols })
+            | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => symbols.get_mut(id),
 
-            (Name::Namespace(id, name), Symbol::Mod { symbols })
-            | (Name::Namespace(id, name), Symbol::Struct { symbols, .. }) => {
+            (Name::Namespace(id, _, name), Symbol::Mod { symbols })
+            | (Name::Namespace(id, _, name), Symbol::Struct { symbols, .. }) => {
                 symbols.get_mut(id)?.symbol.resolve_mut(name)
             }
             _ => None,

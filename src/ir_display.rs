@@ -12,6 +12,17 @@ fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fm
     Ok(())
 }
 
+pub fn type_array_str(arr: &Vec<Type>) -> String {
+    let mut out = "<".into();
+    for (i, ty) in arr.iter().enumerate() {
+        out += &format!("{}", ty)[..];
+        if i != arr.len() - 1 {
+            out += ", ";
+        }
+    }
+    out
+}
+
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

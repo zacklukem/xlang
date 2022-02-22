@@ -126,7 +126,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
     }
 
     fn resolve(&'a self, name: &ast::Name) -> Option<sym::Type> {
-        if let ast::Name::Ident(ast::Ident { span }) = name {
+        if let ast::Name::Ident(ast::Ident { span }, _) = name {
             let id = span.str().into();
             if let Some(var) = self.scope.resolve(&id) {
                 return if let Some(t) = self.variable_defs.get(var) {
@@ -138,7 +138,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                 };
             }
         }
-        let name = name.into();
+        let name = sym::Name::from_ast_name(name, self.module.const_eval());
         match self.module.ty_ctx.root.resolve(&name) {
             Some(sym::SymbolInfo {
                 symbol: sym::Symbol::Struct { .. },
@@ -150,6 +150,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                     sym::Symbol::Fun {
                         params,
                         return_type,
+                        types,
                     },
                 ..
             }) => Some(sym::Type::Fun(
@@ -288,7 +289,8 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         match pattern.value() {
             ast::Pattern::Tuple(_, patterns, _) => {
                 let global_var_name = self.declare_hidden_var(ty.clone());
-                let lhs_expr = ir::ExprKind::Ident(sym::Name::Ident(global_var_name.clone()));
+                let lhs_expr =
+                    ir::ExprKind::Ident(sym::Name::Ident(global_var_name.clone(), Vec::new()));
                 let lhs_expr = ir::Expr::new(lhs_expr, span.clone(), ty.clone()).lhs_expr();
                 let assign_expr = ir::Expr::new(
                     ir::ExprKind::Assign(Box::new(lhs_expr), ir::AssignOp::Eq, Box::new(expr)),
@@ -302,8 +304,10 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                         self.err.err("Incompatible pattern types".into(), span);
                     }
                     for (i, (pattern, pat_ty)) in patterns.iter().zip(tys.iter()).enumerate() {
-                        let access_expr =
-                            ir::ExprKind::Ident(sym::Name::Ident(global_var_name.clone()));
+                        let access_expr = ir::ExprKind::Ident(sym::Name::Ident(
+                            global_var_name.clone(),
+                            Vec::new(),
+                        ));
                         let access_expr = ir::Expr::new(access_expr, span.clone(), ty.clone());
 
                         let expr = ir::ExprKind::Dot(Box::new(access_expr), format!("_{}", i));
@@ -319,7 +323,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                 let expr = self.coerce(expr, &sym::Type::Primitive(sym::PrimitiveType::I32))?;
                 let ty = expr.ty().clone();
                 let global_var_name = self.declare_var(&id.str().into(), ty.clone());
-                let lhs_expr = ir::ExprKind::Ident(sym::Name::Ident(global_var_name));
+                let lhs_expr = ir::ExprKind::Ident(sym::Name::Ident(global_var_name, Vec::new()));
                 let lhs_expr = ir::Expr::new(lhs_expr, id.span.clone(), ty.clone()).lhs_expr();
                 let assign_expr = ir::Expr::new(
                     ir::ExprKind::Assign(Box::new(lhs_expr), ir::AssignOp::Eq, Box::new(expr)),
@@ -503,7 +507,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                 .err(format!("Name `{}` not found in scope", span.str()), span);
         }
         let ty = ty.unwrap_or_else(|| sym::Type::Err);
-        let expr = ir::ExprKind::Ident(name.into());
+        let expr = ir::ExprKind::Ident(sym::Name::from_ast_name(name, self.module.const_eval()));
         let expr = ir::Expr::new(expr, span.clone(), ty);
         Ok(expr)
     }
@@ -755,7 +759,12 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
             sym::Type::Named(struct_name) => {
                 let ty_sym = self.module.ty_ctx.root.resolve(struct_name);
                 if let Some(sym::SymbolInfo {
-                    symbol: sym::Symbol::Struct { members, symbols },
+                    symbol:
+                        sym::Symbol::Struct {
+                            members,
+                            symbols,
+                            types: struct_ty_params,
+                        },
                     ..
                 }) = ty_sym
                 {
@@ -764,13 +773,16 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                             sym::Symbol::Fun {
                                 params,
                                 return_type,
+                                types: fun_ty_params,
                             },
                         ..
                     }) = symbols.get(&rhs)
                     {
                         // The type is a method
-                        let fun_name =
-                            sym::Name::with_end(&struct_name, sym::Name::Ident(rhs.clone()));
+                        let fun_name = sym::Name::with_end(
+                            &struct_name,
+                            sym::Name::Ident(rhs.clone(), Vec::new()),
+                        );
 
                         // Type of method
                         let ty = sym::Type::Fun(
@@ -1080,7 +1092,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Expr>)>,
     ) -> Result<ir::Expr, ModGenError> {
         let type_name_span = type_name.span.clone();
-        let type_name: sym::Name = type_name.value().into();
+        let type_name = sym::Name::from_ast_name(type_name.value(), self.module.const_eval());
         let mut members: Vec<(String, _)> = members
             .iter()
             .map(|ast::Spanned { value: (id, v), .. }| {

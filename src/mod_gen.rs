@@ -59,7 +59,7 @@ impl<'mg> ModGen<'mg> {
             let stmt = &stmt.value;
             match stmt {
                 TopStmt::Struct { pub_tok, name, .. } => {
-                    let name = name.value().into();
+                    let name = sym::Name::from_ast_name(name.value(), self.module.const_eval());
                     let symbol = sym::SymbolInfo::new(
                         if pub_tok.is_some() {
                             sym::SymbolVisibility::Public
@@ -69,6 +69,8 @@ impl<'mg> ModGen<'mg> {
                         sym::Symbol::Struct {
                             symbols: Default::default(),
                             members: Default::default(),
+                            // TODO: insert these
+                            types: Default::default(),
                         },
                     );
                     self.declare(&name, symbol)
@@ -108,7 +110,8 @@ impl<'mg> ModGen<'mg> {
         (self_type, params): &ast::FunParams,
         return_type: &Option<ast::SpanBox<ast::Type>>,
     ) -> Result<(), ModGenError> {
-        let fun_name: sym::Name = ast_fun_name.value().into();
+        let fun_name: sym::Name =
+            sym::Name::from_ast_name(ast_fun_name.value(), self.module.const_eval());
         let self_param = if self_type.is_some() {
             if fun_name.is_ident() {
                 self.err.err(
@@ -163,6 +166,8 @@ impl<'mg> ModGen<'mg> {
         let symbol = sym::Symbol::Fun {
             params: fun_params,
             return_type,
+            // TODO: insert these
+            types: Default::default(),
         };
         self.declare(&fun_name, sym::SymbolInfo::new(visibility, symbol))?;
         Ok(())
@@ -174,7 +179,8 @@ impl<'mg> ModGen<'mg> {
         ast_struct_name: &ast::Spanned<ast::Name>,
         members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Type>)>,
     ) -> Result<(), ModGenError> {
-        let struct_name = ast_struct_name.value().into();
+        let struct_name =
+            sym::Name::from_ast_name(ast_struct_name.value(), self.module.const_eval());
         let sym = self.module.ty_ctx.root.resolve_mut(&struct_name).unwrap();
         if let sym::Symbol::Struct {
             members: sym_members,
@@ -207,7 +213,7 @@ impl<'mg> ModGen<'mg> {
         for stmt in &self.ast_module.top_stmts {
             match &stmt.value {
                 ast::TopStmt::Fun { name, body, .. } => {
-                    let name = name.value().into();
+                    let name = sym::Name::from_ast_name(name.value(), self.module.const_eval());
                     self.gen_fun_ir(name, body)?;
                 }
                 _ => (),
@@ -225,6 +231,7 @@ impl<'mg> ModGen<'mg> {
         let (params, return_type) = if let sym::Symbol::Fun {
             params,
             return_type,
+            types,
         } = fun_type
         {
             (params, return_type)

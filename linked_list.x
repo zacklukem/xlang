@@ -1,17 +1,17 @@
-fun free(ptr: *void) {}
-fun panic(msg: *[]u8) {}
-fun alloc(size: usize) -> *void {}
+fun<> free(ptr: *void) {}
+fun<> panic(msg: *[]u8) {}
+fun<> alloc(size: usize) -> *void {}
 
-struct List {
-    head: *Node,
+struct<T> List {
+    head: *Node::<T>,
 }
 
-struct Node {
-    data: i32,
-    next: *Node,
+struct<T> Node {
+    data: T,
+    next: *Node::<T>,
 }
 
-fun List::len(*self) -> usize {
+fun<T> List::<T>::len(*self) -> usize {
     if self.head == null {
         return 0;
     } else {
@@ -19,7 +19,7 @@ fun List::len(*self) -> usize {
     }
 }
 
-fun Node::len(*self) -> usize {
+fun<T> Node::<T>::len(*self) -> usize {
     if self == null {
         return 0;
     } else {
@@ -27,7 +27,7 @@ fun Node::len(*self) -> usize {
     }
 }
 
-fun List::reverse(*self) {
+fun<T> List::<T>::reverse(*self) {
     let prev = null as *Node;
     let node = self.head;
     let next = null as *Node;
@@ -40,18 +40,18 @@ fun List::reverse(*self) {
     self.head = prev;
 }
 
-fun List::push_front(*self, val: i32) {
-    self.head = box Node of {
+fun<T> List::<T>::push_front(*self, val: T) {
+    self.head = box Node::<T> of {
         data: val,
         next: self.head,
     };
 }
 
-fun List::push_back(*self, val: i32) {
+fun<T> List::<T>::push_back(*self, val: T) {
     self.head.push_back(val);
 }
 
-fun Node::push_back(*self, val: i32) {
+fun<T> Node::<T>::push_back(*self, val: T) {
     if self.next == null {
         self.next = box Node of {
             data: val,
@@ -62,7 +62,7 @@ fun Node::push_back(*self, val: i32) {
     }
 }
 
-fun List::pop_back(*self) -> i32 {
+fun<T> List::<T>::pop_back(*self) -> T {
     if self.head == null {
         panic("Popped on empty list");
     } else if self.head.next == null {
@@ -75,7 +75,7 @@ fun List::pop_back(*self) -> i32 {
     }
 }
 
-fun Node::pop_back(*self) -> i32 {
+fun<T> Node::<T>::pop_back(*self) -> T {
     if self.next == null {
         panic("Popped on empty list");
     } else if self.next.next == null {
@@ -88,7 +88,7 @@ fun Node::pop_back(*self) -> i32 {
     }
 }
 
-fun List::pop_front(*self) -> i32 {
+fun<T> List::<T>::pop_front(*self) -> T {
     let out = self.head.data;
     let old_head = self.head;
     self.head = self.head.next;
@@ -96,11 +96,11 @@ fun List::pop_front(*self) -> i32 {
     return out;
 }
 
-fun List::nth(*self, idx: usize) -> i32 {
+fun<T> List::<T>::nth(*self, idx: usize) -> T {
     self.head.nth(idx);
 }
 
-fun Node::nth(*self, idx: usize) -> i32 {
+fun<T> Node::<T>::nth(*self, idx: usize) -> T {
     if self == null {
         panic("Out of range");
     } else if idx == 0 {
@@ -110,7 +110,7 @@ fun Node::nth(*self, idx: usize) -> i32 {
     }
 }
 
-fun Node::free(*self) {
+fun<T> Node::<T>::free(*self) {
     self.next.free();
     free(self);
 }
