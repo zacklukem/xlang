@@ -407,13 +407,21 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         span: &ast::Span,
         expr: Option<&ast::SpanBox<ast::Expr>>,
     ) -> Result<ir::StmtKind, ModGenError> {
-        let expr = expr.map(|e| self.gen_expr(e)).transpose()?;
+        let expr = expr
+            .map(|e| self.gen_expr_coerce(e, self.return_type))
+            .transpose()?;
         let ty = match &expr {
             Some(e) => e.ty().clone(),
             None => sym::Type::Primitive(sym::PrimitiveType::Void),
         };
         if ty != *self.return_type {
-            self.err.err("Invalid return type".into(), span);
+            self.err.err(
+                format!(
+                    "Invalid return type got: {} expected: {}",
+                    ty, self.return_type
+                ),
+                span,
+            );
         }
         Ok(ir::StmtKind::Return(expr.map(Box::new)))
     }
@@ -593,7 +601,7 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         let lhs_ty = lhs.ty().clone();
         let lhs = lhs.lhs_expr();
         let op = op.value().into();
-        let rhs = self.gen_expr(rhs)?;
+        let rhs = self.gen_expr_coerce(rhs, &lhs_ty)?;
 
         let ty = if lhs_ty != *rhs.ty() {
             self.err.err(
@@ -622,8 +630,15 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         let rhs = self.gen_expr(rhs)?;
 
         let (lhs, rhs) = match (lhs.ty(), rhs.ty()) {
+            (sym::Type::Pointer(_, _), sym::Type::Pointer(_, _)) => {
+                let ty = sym::Type::Pointer(
+                    sym::PointerType::Star,
+                    Box::new(sym::Type::Primitive(sym::PrimitiveType::Void)),
+                );
+                (self.coerce(lhs, &ty)?, self.coerce(rhs, &ty)?)
+            }
             (sym::Type::Primitive(lhs_ty), sym::Type::Primitive(rhs_ty)) => {
-                let ty = lhs_ty.max(rhs_ty).clone();
+                let ty = lhs_ty.min(rhs_ty).clone();
                 let ty = sym::Type::Primitive(ty);
                 (self.coerce(lhs, &ty)?, self.coerce(rhs, &ty)?)
             }
@@ -631,7 +646,10 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         };
 
         if lhs.ty() != rhs.ty() {
-            self.err.err("Incompatible types".into(), span);
+            self.err.err(
+                format!("Incompatible types {} <> {}", lhs.ty(), rhs.ty()),
+                span,
+            );
         }
 
         let ty = match op {
@@ -643,16 +661,20 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
                     sym::Type::Err
                 }
             }
-            _ if !lhs.ty().is_numeric() => {
-                self.err.err("Incompatible types".into(), span);
-                sym::Type::Err
-            }
             ir::BinOp::Lt
             | ir::BinOp::Gt
             | ir::BinOp::LtEq
             | ir::BinOp::GtEq
             | ir::BinOp::EqEq
-            | ir::BinOp::NotEq => sym::Type::Primitive(sym::PrimitiveType::Bool),
+            | ir::BinOp::NotEq
+                if lhs.ty().is_numeric() || matches!(lhs.ty(), sym::Type::Pointer(_, _)) =>
+            {
+                sym::Type::Primitive(sym::PrimitiveType::Bool)
+            }
+            _ if !lhs.ty().is_numeric() => {
+                self.err.err("Incompatible types".into(), span);
+                sym::Type::Err
+            }
             _ => lhs.ty().clone(),
         };
 
@@ -697,8 +719,13 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
             ir::UnaryOp::Ref => {
                 sym::Type::Pointer(sym::PointerType::Star, Box::new(rhs.ty().clone()))
             }
+
             ir::UnaryOp::RefMut => {
                 sym::Type::Pointer(sym::PointerType::StarMut, Box::new(rhs.ty().clone()))
+            }
+
+            ir::UnaryOp::Box => {
+                sym::Type::Pointer(sym::PointerType::Star, Box::new(rhs.ty().clone()))
             }
         };
 
@@ -781,6 +808,135 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
 
         let expr = ir::ExprKind::Dot(Box::new(lhs), rhs);
         let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
+    }
+
+    fn gen_cast_expr(
+        &mut self,
+        span: &ast::Span,
+        expr: &ast::Spanned<ast::Expr>,
+        ty: &ast::Spanned<ast::Type>,
+    ) -> Result<ir::Expr, ModGenError> {
+        let expr = self.gen_expr(expr)?;
+        let ty = sym::Type::from_ast_type(ty.value(), self.module.const_eval());
+
+        let ty = match (expr.ty(), &ty) {
+            (
+                sym::Type::Primitive(sym::PrimitiveType::Void),
+                sym::Type::Primitive(sym::PrimitiveType::Void),
+            ) => {
+                self.err.err("Cannot cast void".into(), span);
+                sym::Type::Err
+            }
+            (
+                sym::Type::Primitive(sym::PrimitiveType::Bool),
+                sym::Type::Primitive(sym::PrimitiveType::Bool),
+            ) => {
+                self.err.err("Cannot cast bool".into(), span);
+                sym::Type::Err
+            }
+            _ => ty,
+        };
+
+        let expr = ir::ExprKind::Cast(Box::new(expr), Box::new(ty.clone()));
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
+    }
+
+    fn gen_ternary_expr(
+        &mut self,
+        span: &ast::Span,
+        condition: &ast::Spanned<ast::Expr>,
+        then_expr: &ast::Spanned<ast::Expr>,
+        else_expr: &ast::Spanned<ast::Expr>,
+    ) -> Result<ir::Expr, ModGenError> {
+        let condition = self.gen_expr(condition)?;
+        let then_expr = self.gen_expr(then_expr)?;
+        let else_expr = self.gen_expr_coerce(else_expr, then_expr.ty())?;
+
+        match condition.ty() {
+            sym::Type::Primitive(sym::PrimitiveType::Bool) => (),
+            _ => {
+                self.err.err(
+                    "If statement condition must be bool type".into(),
+                    condition.span(),
+                );
+            }
+        }
+
+        let ty = if then_expr.ty() == else_expr.ty() {
+            then_expr.ty().clone()
+        } else {
+            self.err.err(
+                "If and else value types don't match".into(),
+                then_expr.span(),
+            );
+            sym::Type::Err
+        };
+
+        let condition = Box::new(condition);
+        let then_expr = Box::new(then_expr);
+        let else_expr = Box::new(else_expr);
+
+        let expr = ir::ExprKind::Ternary {
+            condition,
+            then_expr,
+            else_expr,
+        };
+
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
+    }
+
+    fn gen_range_expr(
+        &mut self,
+        span: &ast::Span,
+        range: &ast::Range,
+    ) -> Result<ir::Expr, ModGenError> {
+        macro_rules! zero {
+            () => {
+                ir::Expr::new(
+                    ir::ExprKind::Integer(ir::IntegerSpecifier::USize(0)),
+                    span.clone(),
+                    sym::Type::Primitive(sym::PrimitiveType::USize),
+                )
+            };
+        }
+        macro_rules! check_type {
+            ($e: expr) => {
+                if let sym::Type::Primitive(sym::PrimitiveType::USize) = $e {
+                    ()
+                } else {
+                    self.err.err("Range values must be usize".into(), span);
+                }
+            };
+        }
+        let expr = match range {
+            ast::Range::All(_) => ir::ExprKind::RangeFrom(Box::new(zero!())),
+            ast::Range::Full(lhs, _, rhs) => {
+                let lhs = self.gen_expr(lhs.as_ref())?;
+                let rhs = self.gen_expr(rhs.as_ref())?;
+                check_type!(lhs.ty());
+                check_type!(rhs.ty());
+                ir::ExprKind::Range(Box::new(lhs), Box::new(rhs))
+            }
+            ast::Range::Start(lhs, _) => {
+                let lhs = self.gen_expr(lhs.as_ref())?;
+                check_type!(lhs.ty());
+                ir::ExprKind::RangeFrom(Box::new(lhs))
+            }
+            ast::Range::End(_, rhs) => {
+                let rhs = self.gen_expr(rhs.as_ref())?;
+                check_type!(rhs.ty());
+                ir::ExprKind::Range(Box::new(zero!()), Box::new(rhs))
+            }
+        };
+
+        let expr = ir::Expr::new(
+            expr,
+            span.clone(),
+            sym::Type::Range(Box::new(sym::Type::Primitive(sym::PrimitiveType::USize))),
+        );
         Ok(expr)
     }
 
@@ -891,7 +1047,30 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         span: &ast::Span,
         members: &ast::SpanVec<ast::Expr>,
     ) -> Result<ir::Expr, ModGenError> {
-        todo!()
+        let members = members
+            .iter()
+            .map(|v| self.gen_expr(v))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let ty = if !members.is_empty() {
+            let first = members.first().unwrap();
+            for member in members.iter().skip(1) {
+                if member.ty() != first.ty() {
+                    self.err
+                        .err("Array values must be homogeneous".into(), member.span());
+                    break; // only emit one err
+                }
+            }
+            first.ty().clone()
+        } else {
+            sym::Type::Unknown
+        };
+
+        let ty = sym::Type::SizedArray(members.len(), Box::new(ty));
+
+        let expr = ir::ExprKind::Array { members };
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
     }
 
     fn gen_struct_expr(
@@ -900,7 +1079,72 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
         type_name: &ast::Spanned<ast::Name>,
         members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Expr>)>,
     ) -> Result<ir::Expr, ModGenError> {
-        todo!()
+        let type_name_span = type_name.span.clone();
+        let type_name: sym::Name = type_name.value().into();
+        let mut members: Vec<(String, _)> = members
+            .iter()
+            .map(|ast::Spanned { value: (id, v), .. }| {
+                Ok((id.str().into(), Box::new(self.gen_expr(v)?)))
+            })
+            .collect::<Result<Vec<_>, ModGenError>>()?;
+
+        let ty = if let Some(sym::SymbolInfo {
+            symbol:
+                sym::Symbol::Struct {
+                    members: struct_members,
+                    ..
+                },
+            ..
+        }) = self.module.ty_ctx.root.resolve(&type_name)
+        {
+            if struct_members.len() != members.len() {
+                self.err
+                    .err("Missing or extra struct fields".into(), &type_name_span);
+                sym::Type::Err
+            } else {
+                let mut failed = false;
+                for (name, expr) in &mut members {
+                    match struct_members.get(name) {
+                        Some(member) => {
+                            {
+                                let expr_ref = expr.as_mut();
+                                // Hax
+                                let expr = std::mem::replace(
+                                    expr_ref,
+                                    ir::Expr::new(
+                                        ir::ExprKind::Err,
+                                        ast::Span::dummy(),
+                                        sym::Type::Err,
+                                    ),
+                                );
+                                // std::mem::
+                                *expr_ref = self.coerce(expr, &member)?;
+                            }
+                            if expr.ty() != member {
+                                self.err.err("Invalid type".into(), expr.span());
+                                failed = true;
+                            }
+                        }
+                        None => {
+                            self.err.err("Field doesn't exist".into(), expr.span());
+                            failed = true;
+                        }
+                    };
+                }
+                if failed {
+                    sym::Type::Err
+                } else {
+                    sym::Type::Named(type_name.clone())
+                }
+            }
+        } else {
+            self.err.err("Invalid struct name".into(), &type_name_span);
+            sym::Type::Err
+        };
+
+        let expr = ir::ExprKind::Struct { type_name, members };
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
     }
 
     fn gen_expr_coerce(
@@ -915,6 +1159,37 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
     fn coerce(&mut self, expr: ir::Expr, ty: &sym::Type) -> Result<ir::Expr, ModGenError> {
         let expr_span = expr.span().clone();
         match (ty, expr.ty()) {
+            (sym::Type::Pointer(ptr_kind, inner_ty), sym::Type::Pointer(_, _))
+                if matches!(expr.kind(), ir::ExprKind::Null) =>
+            {
+                let expr = ir::ExprKind::Cast(
+                    Box::new(expr),
+                    Box::new(sym::Type::Pointer(ptr_kind.clone(), inner_ty.clone())),
+                );
+                let expr = ir::Expr::new(
+                    expr,
+                    expr_span,
+                    sym::Type::Pointer(ptr_kind.clone(), inner_ty.clone()),
+                );
+                Ok(expr)
+            }
+            (sym::Type::Pointer(ptr_kind, inner_ty), sym::Type::Pointer(_, _))
+                if matches!(
+                    inner_ty.as_ref(),
+                    sym::Type::Primitive(sym::PrimitiveType::Void)
+                ) =>
+            {
+                let expr = ir::ExprKind::Cast(
+                    Box::new(expr),
+                    Box::new(sym::Type::Pointer(ptr_kind.clone(), inner_ty.clone())),
+                );
+                let expr = ir::Expr::new(
+                    expr,
+                    expr_span,
+                    sym::Type::Pointer(ptr_kind.clone(), inner_ty.clone()),
+                );
+                Ok(expr)
+            }
             (sym::Type::Primitive(target), sym::Type::Primitive(current))
                 if current.is_integral() && target.is_integral() && target < current =>
             {
@@ -951,9 +1226,19 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
 
             ast::Expr::Dot(lhs, _, rhs) => self.gen_dot_expr(expr_span, lhs.as_ref(), rhs)?,
 
-            // cast
+            ast::Expr::Cast(lhs, _, rhs) => {
+                self.gen_cast_expr(expr_span, lhs.as_ref(), rhs.as_ref())?
+            }
 
-            // range
+            ast::Expr::Range(range) => self.gen_range_expr(expr_span, range)?,
+
+            ast::Expr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+                ..
+            } => self.gen_ternary_expr(expr_span, condition, then_expr, else_expr)?,
+
             // ternary
             ast::Expr::Call {
                 expr, arguments, ..
@@ -966,8 +1251,14 @@ impl<'a, 'mg> IrGen<'a, 'mg> {
             ast::Expr::Struct {
                 type_name, members, ..
             } => self.gen_struct_expr(expr_span, type_name, members)?,
-
-            _ => todo!(),
+            ast::Expr::Null(_) => ir::Expr::new(
+                ir::ExprKind::Null,
+                expr_span.clone(),
+                sym::Type::Pointer(
+                    sym::PointerType::Star,
+                    Box::new(sym::Type::Primitive(sym::PrimitiveType::Void)),
+                ),
+            ),
         };
         Ok(expr)
     }

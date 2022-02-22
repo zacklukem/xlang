@@ -193,6 +193,7 @@ UnaryOp: UnaryOp = {
     "*" => UnaryOp::Deref,
     "&" => UnaryOp::Ref,
     "&" "mut" => UnaryOp::RefMut,
+    "box" => UnaryOp::Box,
 };
 
 UnaryPrefix: Expr = {
@@ -216,6 +217,7 @@ PrimaryExpr: Expr = {
             _ => Expr::Tuple(<>),
         }
     },
+    Span<"null"> => Expr::Null(<>),
     Span<"true"> => Expr::Bool(<>, true),
     Span<"false"> => Expr::Bool(<>, false),
     Span<r#""[^"]*""#> => Expr::String(<>),
@@ -280,6 +282,7 @@ PrimitiveType: PrimitiveType = {
     "f64" => PrimitiveType::F64,
 
     "bool" => PrimitiveType::Bool,
+    "void" => PrimitiveType::Void,
 };
 
 // Utilities

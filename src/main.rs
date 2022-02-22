@@ -18,24 +18,7 @@ fn main() {
     //     .unwrap();
     // println!("{:#?}", ty);
 
-    let source_string = r#"
-        struct Word {
-            a: *Word,
-            b: i64,
-        }
-
-        fun eat_i32(v: i32) {
-
-        }
-
-        fun Word::free(*self, v: i8, m: *[]i64) -> i32 {
-            let k = 8 + 2;
-            let (a,(b,c)) = (k, (8, 9));
-            Word::free(self, 0, m);
-            self.free(2, m);
-            eat_i32(v);
-        }
-    "#;
+    let source_string = include_str!("../linked_list.x");
 
     let source = std::rc::Rc::new(ast::Source {
         source_string: String::from(source_string),
@@ -52,7 +35,7 @@ fn main() {
     let mut mod_gen = mod_gen::ModGen::new(&mut module, &mut err, &ast_module);
     mod_gen.run().unwrap();
 
-    println!("{:#?}", module);
+    println!("{:#?}", module.functions);
 
     // println!("{:#?}", module);
 }

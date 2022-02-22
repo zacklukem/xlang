@@ -246,6 +246,7 @@ pub enum UnaryOp {
     Deref,
     Ref,
     RefMut,
+    Box,
 }
 
 impl From<&ast::UnaryOp> for UnaryOp {
@@ -257,6 +258,7 @@ impl From<&ast::UnaryOp> for UnaryOp {
             ast::UnaryOp::Deref => UnaryOp::Deref,
             ast::UnaryOp::Ref => UnaryOp::Ref,
             ast::UnaryOp::RefMut => UnaryOp::RefMut,
+            ast::UnaryOp::Box => UnaryOp::Box,
         }
     }
 }
@@ -269,6 +271,8 @@ pub enum ExprKind {
     String(String),
     Bool(bool),
 
+    Null,
+
     LhsExpr(Box<Expr>),
 
     Tuple(Vec<Expr>),
@@ -280,6 +284,7 @@ pub enum ExprKind {
     Cast(Box<Expr>, Box<Type>),
 
     Range(Box<Expr>, Box<Expr>),
+    RangeFrom(Box<Expr>),
 
     Ternary {
         condition: Box<Expr>,
@@ -306,7 +311,7 @@ pub enum ExprKind {
 
     // MyStruct { name: value, name: value }
     Struct {
-        type_name: Box<Name>,
+        type_name: Name,
         members: Vec<(String, Box<Expr>)>,
     },
 

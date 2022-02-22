@@ -9,7 +9,7 @@ pub enum MsgKind {
 }
 
 impl ErrorContext {
-    pub fn emit(&mut self, kind: MsgKind, msg: String, span: &ast::Span) {
+    pub fn emit(&mut self, _kind: MsgKind, msg: String, span: &ast::Span) {
         println!("ERROR: {} {:?}", msg, span);
         panic!();
     }

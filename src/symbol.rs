@@ -119,6 +119,7 @@ pub enum Type {
     Range(Box<Type>),
     Lhs(Box<Type>),
     Err,
+    Unknown,
 }
 
 impl Type {

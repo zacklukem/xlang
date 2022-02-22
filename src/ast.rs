@@ -12,6 +12,15 @@ pub struct Span {
 }
 
 impl Span {
+    pub fn dummy() -> Span {
+        Span {
+            source: Rc::new(Source {
+                source_string: String::new(),
+            }),
+            start: 0,
+            end: 0,
+        }
+    }
     pub fn str(&self) -> &str {
         &self.source.source_string[self.start..self.end]
     }
@@ -207,6 +216,7 @@ pub enum UnaryOp {
     Deref,
     Ref,
     RefMut,
+    Box,
 }
 
 #[derive(Debug)]
@@ -246,6 +256,8 @@ pub enum Expr {
     Float(Span, FloatSpecifier),
     String(Span),
     Bool(Span, bool),
+
+    Null(Span),
 
     Tuple(Span, SpanVec<Expr>, Span),
 

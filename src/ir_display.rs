@@ -32,8 +32,9 @@ impl Display for Type {
             Type::SizedArray(size, ty) => write!(f, "[{}]{}", size, ty),
             Type::UnsizedArray(ty) => write!(f, "[]{}", ty),
             Type::Lhs(ty) => write!(f, "{}", ty),
-            Type::Range(ty) => write!(f, "range<{}>", ty),
-            Type::Err => write!(f, "ERR_TYPE"),
+            Type::Range(ty) => write!(f, "<RANGE {}>", ty),
+            Type::Err => write!(f, "<ERR_TYPE>"),
+            Type::Unknown => write!(f, "<UNKNOWN>"),
         }
     }
 }
@@ -216,6 +217,7 @@ impl Display for UnaryOp {
             UnaryOp::Deref => "*",
             UnaryOp::Ref => "&",
             UnaryOp::RefMut => "&mut ",
+            UnaryOp::Box => "box ",
         };
         f.write_str(v)
     }
@@ -234,6 +236,7 @@ fn write_expr_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Expr>) -> std::fm
 impl Display for ExprKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ExprKind::Null => f.write_str("null"),
             ExprKind::Ident(val) => val.fmt(f),
             ExprKind::Integer(val) => val.fmt(f),
             ExprKind::Float(val) => val.fmt(f),
@@ -252,6 +255,7 @@ impl Display for ExprKind {
             ExprKind::Dot(lhs, rhs) => write!(f, "{}.{}", lhs, rhs),
             ExprKind::Cast(lhs, ty) => write!(f, "({} as {})", lhs, ty),
             ExprKind::Range(low, high) => write!(f, "({}..{})", low, high),
+            ExprKind::RangeFrom(low) => write!(f, "({}..)", low),
             ExprKind::Ternary {
                 condition,
                 then_expr,
@@ -284,7 +288,7 @@ impl Display for ExprKind {
                 }
                 f.write_str("}")
             }
-            ExprKind::Err => f.write_str("ERR_EXPR"),
+            ExprKind::Err => f.write_str("<ERR_EXPR>"),
         }
     }
 }
