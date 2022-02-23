@@ -9,6 +9,7 @@ pub mod ir_display;
 pub mod ir_gen;
 pub mod mod_gen;
 pub mod symbol;
+pub mod ty;
 
 lalrpop_mod!(pub parser);
 
@@ -47,6 +48,8 @@ fn main() {
 
     let mut mod_gen = mod_gen::ModGen::new(&mut module, &mut err, &ast_module);
     mod_gen.run().unwrap();
+
+    println!("TyCtx: {:#?}", module.ty_ctx);
 
     println!("{:#?}", module.functions);
 }

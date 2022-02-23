@@ -2,6 +2,10 @@ fun<> free(ptr: *void) {}
 fun<> panic(msg: *[]u8) {}
 fun<> alloc(size: usize) -> *void {}
 
+struct<T> Word {
+    head: *Node::<T>,
+}
+
 struct<T> List {
     head: *Node::<T>,
 }
@@ -15,22 +19,22 @@ fun<T> List::<T>::len(*self) -> usize {
     if self.head == null {
         return 0;
     } else {
-        return self.head.len();
     }
 }
 
-fun<T> Node::<T>::len(*self) -> usize {
+fun<K> Node::<K>::len(*self) -> usize {
     if self == null {
         return 0;
     } else {
+        self.next = self;
         return self.next.len() + 1;
     }
 }
 
 fun<T> List::<T>::reverse(*self) {
-    let prev = null as *Node;
+    let prev = null as *Node::<T>;
     let node = self.head;
-    let next = null as *Node;
+    let next = null as *Node::<T>;
     while node != null{
         next = node.next;
         node.next = prev;
@@ -53,7 +57,7 @@ fun<T> List::<T>::push_back(*self, val: T) {
 
 fun<T> Node::<T>::push_back(*self, val: T) {
     if self.next == null {
-        self.next = box Node of {
+        self.next = box Node::<T> of {
             data: val,
             next: null,
         };

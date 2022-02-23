@@ -1,6 +1,7 @@
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
-use crate::symbol::{Name, Symbol, TyCtx, Type};
+use crate::symbol::{Name, Symbol, TyCtx};
+use crate::ty::Type;
 
 pub struct Fun {
     pub name: Name,

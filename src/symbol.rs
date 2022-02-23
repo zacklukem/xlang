@@ -1,173 +1,12 @@
 use crate::ast;
 use crate::const_eval::ConstEvaluator;
 use crate::ir_display::type_array_str;
+use crate::ty::Type;
 use std::collections::HashMap;
-
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub enum PrimitiveType {
-    Void,
-    Bool,
-
-    F64,
-    F32,
-
-    I64,
-    I32,
-    I16,
-    I8,
-
-    USize,
-
-    U64,
-    U32,
-    U16,
-    U8,
-
-    Integer,
-}
-
-impl PrimitiveType {
-    pub fn is_numeric(&self) -> bool {
-        match self {
-            PrimitiveType::I8
-            | PrimitiveType::I16
-            | PrimitiveType::I32
-            | PrimitiveType::I64
-            | PrimitiveType::U8
-            | PrimitiveType::U16
-            | PrimitiveType::U32
-            | PrimitiveType::U64
-            | PrimitiveType::USize
-            | PrimitiveType::Integer
-            | PrimitiveType::F32
-            | PrimitiveType::F64 => true,
-            _ => false,
-        }
-    }
-    pub fn is_float(&self) -> bool {
-        match self {
-            PrimitiveType::F32 | PrimitiveType::F64 => true,
-            _ => false,
-        }
-    }
-    pub fn is_integral(&self) -> bool {
-        match self {
-            PrimitiveType::I8
-            | PrimitiveType::I16
-            | PrimitiveType::I32
-            | PrimitiveType::I64
-            | PrimitiveType::U8
-            | PrimitiveType::U16
-            | PrimitiveType::U32
-            | PrimitiveType::U64
-            | PrimitiveType::USize
-            | PrimitiveType::Integer => true,
-            _ => false,
-        }
-    }
-}
-
-impl From<&ast::PrimitiveType> for PrimitiveType {
-    fn from(ty: &ast::PrimitiveType) -> Self {
-        match ty {
-            ast::PrimitiveType::I8 => PrimitiveType::I8,
-            ast::PrimitiveType::I16 => PrimitiveType::I16,
-            ast::PrimitiveType::I32 => PrimitiveType::I32,
-            ast::PrimitiveType::I64 => PrimitiveType::I64,
-            ast::PrimitiveType::U8 => PrimitiveType::U8,
-            ast::PrimitiveType::U16 => PrimitiveType::U16,
-            ast::PrimitiveType::U32 => PrimitiveType::U32,
-            ast::PrimitiveType::U64 => PrimitiveType::U64,
-            ast::PrimitiveType::USize => PrimitiveType::USize,
-            ast::PrimitiveType::F32 => PrimitiveType::F32,
-            ast::PrimitiveType::F64 => PrimitiveType::F64,
-            ast::PrimitiveType::Bool => PrimitiveType::Bool,
-            ast::PrimitiveType::Void => PrimitiveType::Void,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PointerType {
-    StarMut,
-    Star,
-}
-
-impl From<&ast::PointerType> for PointerType {
-    fn from(ty: &ast::PointerType) -> Self {
-        match ty {
-            ast::PointerType::StarMut => PointerType::StarMut,
-            ast::PointerType::Star => PointerType::Star,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct TyCtx {
     pub root: Symbol,
-}
-
-/// Semantic type values
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    Primitive(PrimitiveType),
-    Named(Name),
-    Pointer(PointerType, Box<Type>),
-    Tuple(Vec<Type>),
-    Fun(Vec<Type>, Box<Type>),
-    SizedArray(usize, Box<Type>),
-    UnsizedArray(Box<Type>),
-    Range(Box<Type>),
-    Lhs(Box<Type>),
-    Err,
-    Unknown,
-}
-
-impl Type {
-    pub fn ptr(&self) -> Type {
-        Type::Pointer(PointerType::Star, Box::new(self.clone()))
-    }
-
-    pub fn mut_ptr(&self) -> Type {
-        Type::Pointer(PointerType::StarMut, Box::new(self.clone()))
-    }
-
-    pub fn is_numeric(&self) -> bool {
-        match self {
-            Type::Primitive(x) => x.is_numeric(),
-            _ => false,
-        }
-    }
-
-    pub fn from_ast_type(ty: &ast::Type, const_eval: &ConstEvaluator) -> Self {
-        let to_ast_type = |v: &ast::Spanned<ast::Type>| Type::from_ast_type(v.value(), const_eval);
-        match ty {
-            ast::Type::Primitive(ty) => Type::Primitive(ty.value().into()),
-            ast::Type::Named(name) => Type::Named(Name::from_ast_name(name.value(), const_eval)),
-            ast::Type::Pointer(ptr_type, inner_type) => {
-                Type::Pointer(ptr_type.value().into(), Box::new(to_ast_type(inner_type)))
-            }
-            ast::Type::Tuple(_, types, _) => Type::Tuple(types.iter().map(to_ast_type).collect()),
-            ast::Type::Fun(params, return_type) => Type::Fun(
-                // Parameters
-                params.iter().map(to_ast_type).collect(),
-                // Return type (default to void)
-                match return_type {
-                    Some(return_type) => Box::new(to_ast_type(return_type)),
-                    None => Box::new(Type::Primitive(PrimitiveType::Void)),
-                },
-            ),
-            ast::Type::SizedArray {
-                size, inner_type, ..
-            } => Type::SizedArray(
-                const_eval.eval_usize(size.value()),
-                Box::new(Type::from_ast_type(inner_type.value(), const_eval)),
-            ),
-            ast::Type::UnsizedArray { inner_type, .. } => {
-                Type::UnsizedArray(Box::new(to_ast_type(inner_type)))
-            }
-        }
-    }
 }
 
 /// Represents a name (foo::bar) contained in a namespace.
@@ -182,12 +21,12 @@ impl std::fmt::Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Name::Ident(string, types) if types.is_empty() => write!(f, "{}", string),
-            Name::Ident(string, types) => write!(f, "{}<{}>", string, type_array_str(types)),
+            Name::Ident(string, types) => write!(f, "{}::<{}>", string, type_array_str(types)),
             Name::Namespace(string, types, name) if types.is_empty() => {
                 write!(f, "{}::{}", string, name)
             }
             Name::Namespace(string, types, name) => {
-                write!(f, "{}<{}>::{}", string, type_array_str(types), name)
+                write!(f, "{}::<{}>::{}", string, type_array_str(types), name)
             }
         }
     }
@@ -219,25 +58,6 @@ impl Name {
                 types.clone(),
                 Box::new(child.pop_end()?),
             )),
-        }
-    }
-    pub fn from_ast_name(name: &ast::Name, const_eval: &ConstEvaluator) -> Self {
-        match name {
-            ast::Name::Ident(id, types) => Name::Ident(
-                id.str().into(),
-                types
-                    .iter()
-                    .map(|v| Type::from_ast_type(v.value(), const_eval))
-                    .collect(),
-            ),
-            ast::Name::Namespace(id, types, _, name) => Name::Namespace(
-                id.str().into(),
-                types
-                    .iter()
-                    .map(|v| Type::from_ast_type(v.value(), const_eval))
-                    .collect(),
-                Box::new(Self::from_ast_name(name.value(), const_eval)),
-            ),
         }
     }
 }
@@ -306,8 +126,8 @@ impl Symbol {
                 }
             }
 
-            (Name::Namespace(id, types, name), Symbol::Mod { symbols })
-            | (Name::Namespace(id, types, name), Symbol::Struct { symbols, .. }) => symbols
+            (Name::Namespace(id, _, name), Symbol::Mod { symbols })
+            | (Name::Namespace(id, _, name), Symbol::Struct { symbols, .. }) => symbols
                 .get_mut(id)
                 .ok_or(SymbolDeclError::InvalidName)?
                 .symbol
@@ -342,15 +162,5 @@ impl Symbol {
             }
             _ => None,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_primitive_ord() {
-        use super::PrimitiveType::*;
-        assert!(Void < Bool);
-        assert!(Integer > USize);
     }
 }

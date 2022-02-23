@@ -1,5 +1,5 @@
 use crate::ir::*;
-use crate::symbol::{PointerType, Type};
+use crate::ty::{PointerType, Type};
 use std::fmt::{Display, Write};
 
 fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fmt::Result {
@@ -13,7 +13,7 @@ fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fm
 }
 
 pub fn type_array_str(arr: &Vec<Type>) -> String {
-    let mut out = "<".into();
+    let mut out = String::new();
     for (i, ty) in arr.iter().enumerate() {
         out += &format!("{}", ty)[..];
         if i != arr.len() - 1 {
@@ -26,8 +26,9 @@ pub fn type_array_str(arr: &Vec<Type>) -> String {
 impl Display for Type {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Type::Param(p) => f.write_str(&p),
             Type::Primitive(pt) => write!(f, "{:?}", pt),
-            Type::Named(name) => write!(f, "{}", name),
+            Type::Struct { name, .. } => write!(f, "{}", name),
             Type::Pointer(PointerType::Star, ty) => write!(f, "*{}", ty),
             Type::Pointer(PointerType::StarMut, ty) => write!(f, "*mut {}", ty),
             Type::Tuple(tys) => {
