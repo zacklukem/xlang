@@ -271,7 +271,9 @@ impl Display for ExprKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExprKind::Null => f.write_str("null"),
-            ExprKind::Ident(val, generics) => {
+            ExprKind::Ident(name) => f.write_str(&name),
+
+            ExprKind::GlobalIdent(val, generics) => {
                 val.fmt(f)?;
                 if !generics.is_empty() {
                     f.write_str("<")?;

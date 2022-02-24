@@ -441,7 +441,8 @@ impl From<&ast::UnaryOp> for UnaryOp {
 
 #[derive(Debug)]
 pub enum ExprKind<'ty> {
-    Ident(Path, Vec<Ty<'ty>>),
+    Ident(String),
+    GlobalIdent(Path, Vec<Ty<'ty>>),
     Integer(IntegerSpecifier),
     Float(FloatSpecifier),
     String(String),

@@ -38,8 +38,6 @@ fun<T> List::<T>::len(*self) -> usize {
 }
 
 fun<K> Node::<K>::len(*self) -> usize {
-    let a = self;
-    let b = self.next;
     if self == null {
         return 0;
     } else {

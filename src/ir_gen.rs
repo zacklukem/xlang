@@ -221,14 +221,20 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         }
     }
 
-    fn resolve_value(&self, name: &ir::Path, generics: &Vec<ty::Ty<'ty>>) -> Option<ty::Ty<'ty>> {
+    /// Returns the type of the name and a boolean which is true if the name islocal scoped and false if it is global scoped
+    fn resolve_value(
+        &self,
+        name: &ir::Path,
+        generics: &Vec<ty::Ty<'ty>>,
+    ) -> Option<(ty::Ty<'ty>, bool)> {
         if let ir::Path::Terminal(id) = name {
             if let Some(var) = self.scope.resolve(&id) {
                 return self
                     .variable_defs
                     .get(var)
                     .cloned()
-                    .or_else(|| self.params.get(var).cloned());
+                    .or_else(|| self.params.get(var).cloned())
+                    .map(|v| (v, true));
             }
         }
         match self.module.get_def_by_path(name) {
@@ -244,7 +250,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 assert_eq!(ty_params.len(), generics.len());
                 let params = params.iter().map(|(_, t)| *t).collect();
                 // TODO: resolve t-params
-                Some(
+                Some((
                     self.replace_generics(
                         self.module
                             .ty_ctx()
@@ -253,7 +259,8 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                             .map(|(a, b)| (a.clone(), b.clone()))
                             .collect(),
                     ),
-                )
+                    false,
+                ))
             }
             _ => todo!("error{}", name),
         }
@@ -388,8 +395,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         match pattern.value() {
             ast::Pattern::Tuple(_, patterns, _) => {
                 let global_var_name = self.declare_hidden_var(ty.clone());
-                let lhs_expr =
-                    ir::ExprKind::Ident(ir::Path::Terminal(global_var_name.clone()), Vec::new());
+                let lhs_expr = ir::ExprKind::Ident(global_var_name.clone());
                 let lhs_expr = ir::Expr::new(lhs_expr, span.clone(), ty.clone())
                     .lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
@@ -404,10 +410,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                         self.err.err("Incompatible pattern types".into(), span);
                     }
                     for (i, (pattern, pat_ty)) in patterns.iter().zip(tys.iter()).enumerate() {
-                        let access_expr = ir::ExprKind::Ident(
-                            ir::Path::Terminal(global_var_name.clone()),
-                            Vec::new(),
-                        );
+                        let access_expr = ir::ExprKind::Ident(global_var_name.clone());
                         let access_expr = ir::Expr::new(access_expr, span.clone(), ty.clone());
 
                         let expr = ir::ExprKind::Dot(Box::new(access_expr), format!("_{}", i));
@@ -426,7 +429,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 )?;
                 let ty = expr.ty();
                 let global_var_name = self.declare_var(&id.str().into(), ty.clone());
-                let lhs_expr = ir::ExprKind::Ident(ir::Path::Terminal(global_var_name), Vec::new());
+                let lhs_expr = ir::ExprKind::Ident(global_var_name);
                 let lhs_expr = ir::Expr::new(lhs_expr, id.span.clone(), ty.clone())
                     .lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
@@ -614,8 +617,16 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             self.err
                 .err(format!("Name `{}` not found in scope", span.str()), span);
         }
-        let ty = ty.unwrap_or_else(|| ty::err_ty(self.module.ty_ctx()));
-        let expr = ir::ExprKind::Ident(name, generics);
+        let (ty, is_local) = ty.unwrap_or_else(|| (ty::err_ty(self.module.ty_ctx()), false));
+        let expr = if is_local {
+            if let ir::Path::Terminal(name) = name {
+                ir::ExprKind::Ident(name)
+            } else {
+                panic!("internal err")
+            }
+        } else {
+            ir::ExprKind::GlobalIdent(name, generics)
+        };
         let expr = ir::Expr::new(expr, span.clone(), ty);
         Ok(expr)
     }
@@ -930,8 +941,10 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
 
                                 // Struct::method
                                 let path = self.module.get_path_by_def_id(*def_id);
-                                let expr =
-                                    ir::ExprKind::Ident(path.clone(), instance_ty_params.clone());
+                                let expr = ir::ExprKind::GlobalIdent(
+                                    path.clone(),
+                                    instance_ty_params.clone(),
+                                );
                                 let expr =
                                     ir::Expr::new_pass(expr, span.clone(), ty, Box::new(pass_expr));
                                 return Ok(expr);
