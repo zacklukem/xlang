@@ -55,10 +55,24 @@ DeclTypeParams: Vec<Span> = {
 }
 
 pub TopStmt: TopStmt = {
-    <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <type_params: DeclTypeParams> <name: SpanBox<Name>> "(" <params: FunParams> ")"
-        <return_type: ("->" <SpanBox<Type>>)?> <body: SpanBox<FunBlock>> => TopStmt::Fun {<>},
-    <pub_tok: Span<"pub">?> <struct_tok: Span<"struct">> <type_params: DeclTypeParams> <name: SpanBox<Name>> "{"
-        <members: Vec0<Spanned<TypedIdent>, ",">> "}" => TopStmt::Struct {<>},
+    <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <type_params: DeclTypeParams?> <name: SpanBox<Name>> "(" <params: FunParams> ")"
+        <return_type: ("->" <SpanBox<Type>>)?> <body: SpanBox<FunBlock>> => TopStmt::Fun {
+            pub_tok,
+            fun_tok,
+            type_params: type_params.unwrap_or_else(Vec::new),
+            name,
+            params,
+            return_type,
+            body,
+        },
+    <pub_tok: Span<"pub">?> <struct_tok: Span<"struct">> <type_params: DeclTypeParams?> <name: SpanBox<Name>> "{"
+        <members: Vec0<Spanned<TypedIdent>, ",">> "}" => TopStmt::Struct {
+            pub_tok,
+            struct_tok,
+            type_params: type_params.unwrap_or_else(Vec::new),
+            name,
+            members,
+        },
 };
 
 Block: Stmt = {

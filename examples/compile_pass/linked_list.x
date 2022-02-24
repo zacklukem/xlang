@@ -1,6 +1,6 @@
-fun<> free(ptr: *void) {}
-fun<> panic(msg: *[]u8) {}
-fun<> alloc(size: usize) -> *void {}
+fun free(ptr: *void) {}
+fun panic(msg: *[]u8) {}
+fun alloc(size: usize) -> *void {}
 
 struct<T> Word {
     head: *Node::<T>,
