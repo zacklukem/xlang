@@ -14,16 +14,16 @@ pub mod ty;
 lalrpop_mod!(pub parser);
 
 fn main() {
-    // let ty = parser::TypeParser::new()
-    //     .parse("**mut [2() + a([3,4,5], true) * (&mut asdf - &mut 6)](i32, i64)")
-    //     .unwrap();
-    // println!("{:#?}", ty);
+    let mut args = std::env::args();
 
-    let source_string = include_str!("../linked_list.x");
+    args.next();
+    let first_arg = args.next().unwrap();
 
-    let source = std::rc::Rc::new(ast::Source::new(String::from(source_string)));
+    let source_string = std::fs::read_to_string(first_arg).unwrap();
 
-    let ast_module = parser::ModuleParser::new().parse(&source, source_string);
+    let source = std::rc::Rc::new(ast::Source::new(source_string));
+
+    let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
 
     let ast_module = match ast_module {
         Err(lalrpop_util::ParseError::UnrecognizedToken {
@@ -33,11 +33,11 @@ fn main() {
             let expected = expected.join(" | ");
             let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
             source.print_msg((start, end), &msg);
-            return;
+            panic!()
         }
         Err(e) => {
             println!("{:#?}", e);
-            return;
+            panic!()
         }
         Ok(ast_module) => ast_module,
     };
@@ -51,8 +51,6 @@ fn main() {
     let mut mod_gen = mod_gen::ModGen::new(module, err, &ast_module);
     mod_gen.run().unwrap();
     let (module, _err) = mod_gen.finish();
-
-    // println!("TyCtx: {:#?}", module.ty_ctx);
 
     println!("{:#?}", module.functions);
 }
