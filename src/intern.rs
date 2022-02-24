@@ -24,15 +24,14 @@ where
         if let Some(val) = self.data.borrow().get(&val) {
             unsafe {
                 let v = val.as_ref() as *const T;
-                Int(&*v)
+                return Int(&*v);
             }
-        } else {
-            unsafe {
-                let b = Box::new(val);
-                let p = b.as_ref() as *const T;
-                self.data.borrow_mut().insert(b);
-                Int(&*p)
-            }
+        }
+        unsafe {
+            let b = Box::new(val);
+            let p = b.as_ref() as *const T;
+            self.data.borrow_mut().insert(b);
+            Int(&*p)
         }
     }
 }

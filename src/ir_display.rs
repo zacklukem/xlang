@@ -1,5 +1,5 @@
 use crate::ir::*;
-use crate::ty::{PointerType, StructType, Ty, Type};
+use crate::ty::{PointerType, StructType, Ty, TyKind};
 use std::fmt::{Display, Write};
 
 fn write_type_array<'k, 'a>(
@@ -33,37 +33,47 @@ impl Display for Ty<'_> {
     }
 }
 
-impl Display for Type<'_> {
+impl Display for TyKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Type::Param(p) => f.write_str(&p),
-            Type::Primitive(pt) => write!(f, "{:?}", pt),
-            Type::Struct(StructType { name, .. }) => write!(f, "{}", name),
-            Type::Pointer(PointerType::Star, ty) => write!(f, "*{}", ty),
-            Type::Pointer(PointerType::StarMut, ty) => write!(f, "*mut {}", ty),
-            Type::Tuple(tys) => {
+            TyKind::Param(p) => f.write_str(&p),
+            TyKind::Primitive(pt) => write!(f, "{:?}", pt),
+            TyKind::Struct(StructType {
+                db_name, ty_params, ..
+            }) => {
+                write!(f, "{}", db_name)?;
+                if !ty_params.is_empty() {
+                    f.write_str("<")?;
+                    write_type_array(f, ty_params)?;
+                    f.write_str(">")?;
+                }
+                Ok(())
+            }
+            TyKind::Pointer(PointerType::Star, ty) => write!(f, "*{}", ty),
+            TyKind::Pointer(PointerType::StarMut, ty) => write!(f, "*mut {}", ty),
+            TyKind::Tuple(tys) => {
                 f.write_str("(")?;
                 write_type_array(f, tys)?;
                 f.write_str(")")
             }
-            Type::Fun(tys, ret) => {
+            TyKind::Fun(tys, ret) => {
                 f.write_str("(")?;
                 write_type_array(f, tys)?;
                 write!(f, ") -> {}", ret)
             }
-            Type::SizedArray(size, ty) => write!(f, "[{}]{}", size, ty),
-            Type::UnsizedArray(ty) => write!(f, "[]{}", ty),
-            Type::Lhs(ty) => write!(f, "{}", ty),
-            Type::Range(ty) => write!(f, "<RANGE {}>", ty),
-            Type::Err => write!(f, "<ERR_TYPE>"),
-            Type::Unknown => write!(f, "<UNKNOWN>"),
+            TyKind::SizedArray(size, ty) => write!(f, "[{}]{}", size, ty),
+            TyKind::UnsizedArray(ty) => write!(f, "[]{}", ty),
+            TyKind::Lhs(ty) => write!(f, "{}", ty),
+            TyKind::Range(ty) => write!(f, "<RANGE {}>", ty),
+            TyKind::Err => write!(f, "<ERR_TYPE>"),
+            TyKind::Unknown => write!(f, "<UNKNOWN>"),
         }
     }
 }
 
 impl std::fmt::Debug for Fun<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "fun {}\n", self.name)?;
+        write!(f, "fun {}\n", self.db_name)?;
 
         for (name, ty) in &self.variable_defs {
             writeln!(f, "let {}: {}", name, ty)?;
@@ -259,7 +269,24 @@ impl Display for ExprKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExprKind::Null => f.write_str("null"),
-            ExprKind::Ident(val) => val.fmt(f),
+            ExprKind::Ident(val, generics) => {
+                val.fmt(f)?;
+                if !generics.is_empty() {
+                    f.write_str("<")?;
+                    write_type_array(f, generics)?;
+                    f.write_str(">")?;
+                }
+                Ok(())
+            }
+            ExprKind::DefIdent(val, generics) => {
+                write!(f, "{:?}", val)?;
+                if !generics.is_empty() {
+                    f.write_str("<")?;
+                    write_type_array(f, generics)?;
+                    f.write_str(">")?;
+                }
+                Ok(())
+            }
             ExprKind::Integer(val) => val.fmt(f),
             ExprKind::Float(val) => val.fmt(f),
             ExprKind::String(string) => f.write_str(&string),
@@ -299,8 +326,8 @@ impl Display for ExprKind<'_> {
                 write_expr_array(f, members)?;
                 f.write_str("]")
             }
-            ExprKind::Struct { type_name, members } => {
-                type_name.fmt(f)?;
+            ExprKind::Struct { ty, members, .. } => {
+                ty.fmt(f)?;
                 f.write_str(" of {")?;
                 for (i, (name, val)) in members.iter().enumerate() {
                     write!(f, "{}: {}", name, val)?;

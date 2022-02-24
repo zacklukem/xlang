@@ -44,7 +44,7 @@ impl Source {
     }
 
     pub fn line_col(&self, pos: usize) -> (usize, usize) {
-        let (line, idx) = self
+        let (line, _) = self
             .line_starts
             .iter()
             .enumerate()
@@ -98,6 +98,7 @@ impl std::fmt::Debug for Span {
     }
 }
 
+#[derive(Clone)]
 pub struct Spanned<T> {
     pub span: Span,
     pub value: T,
@@ -118,6 +119,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 pub type SpanBox<T> = Box<Spanned<T>>;
 pub type SpanVec<T> = Vec<Spanned<T>>;
 
+#[derive(Clone)]
 pub struct Ident {
     pub span: Span,
 }
@@ -134,35 +136,60 @@ impl std::fmt::Debug for Ident {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Name {
     Ident(Ident, SpanVec<Type>),
     Namespace(Ident, SpanVec<Type>, Span, SpanBox<Name>),
 }
 
-#[derive(Debug)]
+impl Name {
+    pub fn is_ident(&self) -> bool {
+        matches!(self, Name::Ident(..))
+    }
+
+    pub fn pop_end(&self) -> Option<Name> {
+        use Name::*;
+        match self {
+            Ident(..) => None,
+            Namespace(name, types, _, next) if next.value().is_ident() => {
+                Some(Ident(name.clone(), types.clone()))
+            }
+            Namespace(name, types, colon, next) => Some(Namespace(
+                name.clone(),
+                types.clone(),
+                colon.clone(),
+                Box::new(Spanned {
+                    value: next.value().pop_end().unwrap(),
+                    span: next.span.clone(),
+                }),
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum Pattern {
     Tuple(Span, SpanVec<Pattern>, Span),
     Ident(Ident),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SelfType {
     Star,
     StarMut,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module {
     pub top_stmts: SpanVec<TopStmt>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunFinally {
     pub block: SpanBox<Stmt>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FunBlock {
     pub stmts: SpanVec<Stmt>,
     pub finally: Option<FunFinally>,
@@ -170,7 +197,7 @@ pub struct FunBlock {
 
 pub type FunParams = (Option<Spanned<SelfType>>, SpanVec<(Ident, SpanBox<Type>)>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TopStmt {
     Fun {
         pub_tok: Option<Span>,
@@ -190,7 +217,7 @@ pub enum TopStmt {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     If {
         if_tok: Span,
@@ -238,7 +265,7 @@ pub enum Stmt {
     Expr(SpanBox<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinOp {
     Add,
     Sub,
@@ -260,7 +287,7 @@ pub enum BinOp {
     NotEq,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AssignOp {
     Eq,
     AddEq,
@@ -273,7 +300,7 @@ pub enum AssignOp {
     OrEq,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     Neg,
     LogNot,
@@ -284,7 +311,7 @@ pub enum UnaryOp {
     Box,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Range {
     All(Span),
     Start(SpanBox<Expr>, Span),
@@ -292,7 +319,7 @@ pub enum Range {
     Full(SpanBox<Expr>, Span, SpanBox<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntegerSpecifier {
     I8,
     I16,
@@ -307,14 +334,14 @@ pub enum IntegerSpecifier {
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FloatSpecifier {
     F32,
     F64,
     None,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Ident(Name),
     Integer(Span, IntegerSpecifier),
@@ -377,7 +404,7 @@ pub enum Expr {
 
 // Types
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PrimitiveType {
     I8,
     I16,
@@ -397,13 +424,13 @@ pub enum PrimitiveType {
     Void,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PointerType {
     StarMut,
     Star,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Type {
     // i8, u8, bool, ...
     Primitive(Spanned<PrimitiveType>),

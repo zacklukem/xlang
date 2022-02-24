@@ -19,10 +19,13 @@ fun<T> List::<T>::len(*self) -> usize {
     if self.head == null {
         return 0;
     } else {
+        return self.head.len();
     }
 }
 
 fun<K> Node::<K>::len(*self) -> usize {
+    let a = self;
+    let b = self.next;
     if self == null {
         return 0;
     } else {

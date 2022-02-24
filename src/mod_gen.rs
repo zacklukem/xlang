@@ -2,7 +2,6 @@ use crate::ast::{self, TopStmt};
 use crate::error_context::ErrorContext;
 use crate::ir;
 use crate::ir_gen;
-use crate::symbol as sym;
 use crate::ty;
 use std::collections::HashMap;
 
@@ -18,24 +17,112 @@ pub enum ModGenError {
     UnableToDeclare,
 }
 
-impl From<sym::SymbolDeclError> for ModGenError {
-    fn from(sde: sym::SymbolDeclError) -> Self {
-        match sde {
-            sym::SymbolDeclError::AlreadyExists => ModGenError::UnableToDeclare,
-            sym::SymbolDeclError::InvalidName => ModGenError::UnableToDeclare,
+pub trait TypeGenerator<'ast, 'ty> {
+    fn current_generics(&self) -> &Vec<String>;
+    fn module(&self) -> &ir::Module<'ty>;
+
+    fn gen_type(&mut self, ty: &ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
+        let ty = match ty.value() {
+            ast::Type::Primitive(pt) => ty::primitive_ty(self.module().ty_ctx(), pt.value().into()),
+            ast::Type::Named(name) => {
+                let (path, ty_params) = self.gen_path_and_generics(name.value())?;
+                match path {
+                    ir::Path::Terminal(st) if self.current_generics().contains(&st) => {
+                        self.module().ty_ctx().int(ty::TyKind::Param(st))
+                    }
+                    _ => {
+                        let def_id = self.module().get_def_id_by_path(&path).unwrap();
+                        self.module()
+                            .ty_ctx()
+                            .int(ty::TyKind::Struct(ty::StructType {
+                                def_id,
+                                db_name: format!("{}", path),
+                                ty_params,
+                            }))
+                    }
+                }
+            }
+            ast::Type::Pointer(kind, ty) => self.module().ty_ctx().int(ty::TyKind::Pointer(
+                kind.value().into(),
+                self.gen_type(ty.as_ref())?,
+            )),
+            ast::Type::Tuple(_, tys, _) => self
+                .module()
+                .ty_ctx()
+                .int(ty::TyKind::Tuple(self.gen_type_iter(tys.iter())?)),
+            ast::Type::Fun(params, ret) => self.module().ty_ctx().int(ty::TyKind::Fun(
+                self.gen_type_iter(params.iter())?,
+                match ret {
+                    Some(ret) => self.gen_type(ret)?,
+                    None => ty::void_ty(self.module().ty_ctx()),
+                },
+            )),
+            ast::Type::SizedArray {
+                size, inner_type, ..
+            } => self.module().ty_ctx().int(ty::TyKind::SizedArray(
+                self.module().const_eval().eval_usize(size.value()),
+                self.gen_type(inner_type)?,
+            )),
+            ast::Type::UnsizedArray { inner_type, .. } => self
+                .module()
+                .ty_ctx()
+                .int(ty::TyKind::UnsizedArray(self.gen_type(inner_type)?)),
+        };
+        Ok(ty)
+    }
+
+    fn gen_type_iter<'a, T>(&mut self, iter: T) -> Result<Vec<ty::Ty<'ty>>, ModGenError>
+    where
+        T: std::iter::Iterator<Item = &'a ast::Spanned<ast::Type>>,
+    {
+        let mut out = Vec::with_capacity(iter.size_hint().0);
+        for ty in iter {
+            out.push(self.gen_type(ty)?);
+        }
+        Ok(out)
+    }
+
+    fn gen_path(&self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
+        match name {
+            ast::Name::Ident(id, _) => Ok(ir::Path::Terminal(id.str().into())),
+            ast::Name::Namespace(id, _, _, next) => Ok(ir::Path::Namespace(
+                id.str().into(),
+                Box::new(self.gen_path(next.value())?),
+            )),
+        }
+    }
+
+    fn gen_path_and_generics(
+        &mut self,
+        name: &ast::Name,
+    ) -> Result<(ir::Path, Vec<ty::Ty<'ty>>), ModGenError> {
+        match name {
+            ast::Name::Ident(id, generics) => Ok((
+                ir::Path::Terminal(id.str().into()),
+                self.gen_type_iter(generics.iter())?,
+            )),
+            ast::Name::Namespace(id, _, _, next) => {
+                let (next, generics) = self.gen_path_and_generics(next.value())?;
+                Ok((
+                    ir::Path::Namespace(id.str().into(), Box::new(next)),
+                    generics,
+                ))
+            }
         }
     }
 }
 
+impl<'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'ast, 'ty> {
+    fn current_generics(&self) -> &Vec<String> {
+        &self.current_generics
+    }
+
+    fn module(&self) -> &ir::Module<'ty> {
+        &self.module
+    }
+}
+
 impl<'ast, 'ty> ModGen<'ast, 'ty> {
-    fn gen_type(&mut self, ty: &'ast ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
-        todo!()
-    }
-
-    fn gen_name(&self, name: &'ast ast::Name) -> Result<sym::Name<'ty>, ModGenError> {
-        todo!()
-    }
-
     pub fn new(
         module: ir::Module<'ty>,
         err: ErrorContext,
@@ -51,15 +138,6 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
 
     pub fn finish(self) -> (ir::Module<'ty>, ErrorContext) {
         (self.module, self.err)
-    }
-
-    /// declare
-    fn declare(
-        &mut self,
-        name: &sym::Name<'ty>,
-        symbol: sym::SymbolInfo<'ty>,
-    ) -> Result<(), sym::SymbolDeclError> {
-        self.module.root.declare(name, symbol)
     }
 
     pub fn run(&mut self) -> Result<(), ModGenError> {
@@ -80,22 +158,21 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     name,
                     ..
                 } => {
-                    let name = self.gen_name(name.value())?;
-                    let symbol = sym::SymbolInfo::new(
+                    let path = self.gen_path(name.value())?;
+                    let def = ir::Def::new(
                         if pub_tok.is_some() {
-                            sym::SymbolVisibility::Public
+                            ir::DefVisibility::Public
                         } else {
-                            sym::SymbolVisibility::Private
+                            ir::DefVisibility::Private
                         },
-                        sym::Symbol::Struct {
+                        ir::DefKind::Struct {
                             symbols: Default::default(),
                             members: Default::default(),
                             // TODO: insert these
-                            types: type_params.iter().map(|v| v.str().into()).collect(),
+                            ty_params: type_params.iter().map(|v| v.str().into()).collect(),
                         },
                     );
-                    self.declare(&name, symbol)
-                        .map_err(Into::<ModGenError>::into)?;
+                    self.module.declare(path, def).unwrap();
                 }
                 // ignore other top level stmts
                 _ => (),
@@ -129,6 +206,40 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         Ok(())
     }
 
+    fn get_fun_self_type(
+        &mut self,
+        span: &ast::Span,
+        struct_name: &ir::Path,
+        struct_generics: Vec<ty::Ty<'ty>>,
+    ) -> Option<ty::Ty<'ty>> {
+        match self.module.get_def_by_path(struct_name) {
+            Some(ir::Def {
+                kind: ir::DefKind::Struct { .. },
+                ..
+            }) => {
+                let def_id = self.module.get_def_id_by_path(struct_name).unwrap();
+
+                Some(
+                    self.module
+                        .ty_ctx()
+                        .int(ty::TyKind::Struct(ty::StructType {
+                            def_id,
+                            db_name: format!("{}", struct_name),
+                            ty_params: struct_generics,
+                        }))
+                        .ptr(self.module.ty_ctx()),
+                )
+            }
+            _ => {
+                self.err.err(
+                    format!("Functions with self type must be members of struct namespace"),
+                    span,
+                );
+                None
+            }
+        }
+    }
+
     /// Define a function type in second pass
     fn define_fun_type(
         &mut self,
@@ -141,34 +252,18 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
-        let fun_name: sym::Name = self.gen_name(ast_fun_name.value())?;
+        let fun_name = self.gen_path(ast_fun_name.value())?;
         let self_param: Option<ty::Ty<'ty>> = if self_type.is_some() {
-            if fun_name.is_ident() {
+            if fun_name.is_terminal() {
                 self.err.err(
                     format!("Functions with self type must be members of struct namespace"),
                     &ast_fun_name.span,
                 );
                 None
             } else {
-                let struct_name = fun_name.pop_end().unwrap();
-                match self.module.root.resolve(&struct_name) {
-                    Ok(sym::SymbolInfo {
-                        symbol: sym::Symbol::Struct { .. },
-                        ..
-                    }) => Some(
-                        self.module
-                            .root
-                            .resolve_ty(&struct_name, self.module.ty_ctx())
-                            .unwrap(),
-                    ),
-                    _ => {
-                        self.err.err(
-                            format!("Functions with self type must be members of struct namespace"),
-                            &ast_fun_name.span,
-                        );
-                        None
-                    }
-                }
+                let struct_name = ast_fun_name.value().pop_end().unwrap();
+                let (struct_path, struct_generics) = self.gen_path_and_generics(&struct_name)?;
+                self.get_fun_self_type(&ast_fun_name.span, &struct_path, struct_generics)
             }
         } else {
             None
@@ -195,21 +290,23 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
 
         fun_params.append(&mut params_mapped);
         let visibility = if pub_tok.is_some() {
-            sym::SymbolVisibility::Public
+            ir::DefVisibility::Public
         } else {
-            sym::SymbolVisibility::Private
+            ir::DefVisibility::Private
         };
         let return_type = match return_type {
             Some(ty) => self.gen_type(ty)?,
             None => ty::void_ty(self.module.ty_ctx()),
         };
-        let symbol = sym::Symbol::Fun {
+        let def = ir::DefKind::Fun {
             params: fun_params,
             return_type,
             // TODO: insert these
-            types: self.current_generics.clone(),
+            ty_params: self.current_generics.clone(),
         };
-        self.declare(&fun_name, sym::SymbolInfo::new(visibility, symbol))?;
+        self.module
+            .declare(fun_name, ir::Def::new(visibility, def))
+            .unwrap();
         self.current_generics.clear();
         Ok(())
     }
@@ -224,7 +321,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
-        let struct_name = self.gen_name(ast_struct_name.value())?;
+        let struct_path = self.gen_path(ast_struct_name.value())?;
 
         let mut sym_members = HashMap::new();
 
@@ -245,8 +342,8 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             }
         }
 
-        let sym = self.module.root.resolve_mut(&struct_name).unwrap();
-        if let sym::Symbol::Struct { members, .. } = &mut sym.symbol {
+        let sym = self.module.get_mut_def_by_path(&struct_path).unwrap();
+        if let ir::DefKind::Struct { members, .. } = &mut sym.kind {
             *members = sym_members;
         } else {
             panic!("Inconsistent define/declare passes");
@@ -259,8 +356,8 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         for stmt in &self.ast_module.top_stmts {
             match &stmt.value {
                 ast::TopStmt::Fun { name, body, .. } => {
-                    let name = self.gen_name(name.value())?;
-                    self.gen_fun_ir(name, body)?;
+                    let path = self.gen_path(name.value())?;
+                    self.gen_fun_ir(path, body)?;
                 }
                 _ => (),
             }
@@ -270,80 +367,34 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
 
     fn gen_fun_ir(
         &mut self,
-        name: sym::Name<'ty>,
+        path: ir::Path,
         body: &'ast ast::SpanBox<ast::FunBlock>,
     ) -> Result<(), ModGenError> {
-        let (params, return_type, generics) = if let sym::Symbol::Fun {
+        let (params, return_type, generics) = if let ir::DefKind::Fun {
             params,
             return_type,
-            types,
+            ty_params,
         } =
-            &self.module.root.resolve(&name).unwrap().symbol
+            &self.module.get_def_by_path(&path).unwrap().kind
         {
-            (params.clone(), *return_type, types.clone())
+            (params.clone(), *return_type, ty_params.clone())
         } else {
             unreachable!()
         };
 
         let body = ir_gen::gen_fun_block(
             &self.module,
+            format!("{}", path),
             &mut self.err,
-            &name,
+            self.module.get_def_id_by_path(&path).unwrap(),
             params,
             return_type,
             body,
-            generics.clone(),
+            generics,
         )?;
 
         self.module.functions.push(body);
 
         Ok(())
-    }
-
-    fn check_generics(&self, name: &sym::Name) -> bool {
-        todo!()
-        // match name {
-        //     sym::Name::Ident(_, params) => params.iter().all(|t| self.type_exists(t)),
-        //     sym::Name::Namespace(_, params, next) => {
-        //         params.iter().all(|t| self.type_exists(t)) && self.check_generics(next.as_ref())
-        //     }
-        // }
-    }
-
-    fn type_exists(&self, ty: &ty::Type) -> bool {
-        todo!()
-        // match ty {
-        //     ty::Type::Named(name) => {
-        //         self.check_generics(name)
-        //             && match name {
-        //                 sym::Name::Ident(id, params)
-        //                     if params.is_empty() && self.current_generics.contains(id) =>
-        //                 {
-        //                     true
-        //                 }
-        //                 name => match self.module.ty_ctx.root.resolve(&name) {
-        //                     Some(sym::SymbolInfo {
-        //                         symbol: sym::Symbol::Struct { .. },
-        //                         ..
-        //                     })
-        //                     | Some(sym::SymbolInfo {
-        //                         symbol: sym::Symbol::Fun { .. },
-        //                         ..
-        //                     }) => true,
-        //                     _ => false,
-        //                 },
-        //             }
-        //     }
-        //     ty::Type::Tuple(tys) => tys.iter().all(|ty| self.type_exists(ty)),
-        //     ty::Type::Fun(params, ret) => {
-        //         params.iter().all(|ty| self.type_exists(ty)) && self.type_exists(ret.as_ref())
-        //     }
-        //     ty::Type::Pointer(_, ty)
-        //     | ty::Type::SizedArray(_, ty)
-        //     | ty::Type::UnsizedArray(ty)
-        //     | ty::Type::Range(ty)
-        //     | ty::Type::Lhs(ty) => self.type_exists(ty.as_ref()),
-        //     ty::Type::Primitive(_) | ty::Type::Err | ty::Type::Unknown => true,
-        // }
     }
 }

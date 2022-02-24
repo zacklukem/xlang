@@ -2,15 +2,16 @@ use crate::ast;
 use crate::error_context::ErrorContext;
 use crate::intern::Int;
 use crate::ir;
-use crate::mod_gen::ModGenError;
-use crate::symbol as sym;
+use crate::mod_gen::{ModGenError, TypeGenerator};
 use crate::ty;
 use std::collections::{HashMap, VecDeque};
+use std::iter::Iterator;
 
 pub fn gen_fun_block<'ast, 'ty>(
     module: &ir::Module<'ty>,
+    db_name: String,
     err: &mut ErrorContext,
-    name: &sym::Name<'ty>,
+    def_id: ir::DefId,
     params: Vec<(String, ty::Ty<'ty>)>,
     return_type: ty::Ty<'ty>,
     fun: &'ast ast::SpanBox<ast::FunBlock>,
@@ -38,7 +39,8 @@ pub fn gen_fun_block<'ast, 'ty>(
         (body, variable_defs)
     };
     Ok(ir::Fun {
-        name: name.clone(),
+        db_name,
+        def_id,
         block,
         variable_defs,
     })
@@ -96,76 +98,19 @@ fn break_label(v: &String) -> String {
     format!("{}_break", v)
 }
 
+impl<'ast, 'mg, 'ty> TypeGenerator<'ast, 'ty> for IrGen<'mg, 'ty> {
+    fn current_generics(&self) -> &Vec<String> {
+        &self.current_generics
+    }
+
+    fn module(&self) -> &ir::Module<'ty> {
+        &self.module
+    }
+}
+
 impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
     fn variable_defs(self) -> HashMap<String, ty::Ty<'ty>> {
         self.variable_defs
-    }
-
-    fn gen_type(&mut self, ty: &ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
-        /*let ty = match ty.value() {
-            ast::Type::Named(name) => {
-                let name = self.gen_name(name.value())?;
-                match name {
-                    sym::Name<'ty>::Ident(name, params)
-                        if params.is_empty() && self.current_generics.contains(&name) =>
-                    {
-                        ty::Type::Param(name)
-                    }
-                    name => match self.module.ty_ctx.root.resolve(&name) {
-                        Ok(sym::SymbolInfo {
-                            symbol: sym::Symbol::Struct { types, members, .. },
-                            ..
-                        }) => ty::ERR_TY,
-                        Err(_) => {
-                            // No such type
-                            ty::ERR_TY
-                        }
-                        _ => {
-                            // Expected struct type
-                            ty::ERR_TY
-                        }
-                    },
-                }
-            }
-            ast::Type::Primitive(kind) => ty::Type::Primitive(kind.value().into()),
-            ast::Type::Pointer(kind, ty) => {
-                ty::Type::Pointer(kind.value().into(), Box::new(self.gen_type(ty)?))
-            }
-            ast::Type::Tuple(_, tys, _) => {
-                ty::Type::Tuple(tys.iter().map(|ty| self.gen_type(ty)).collect()?)
-            }
-            ast::Type::Fun(params, ret) => ty::Type::Fun(
-                params.iter().map(|ty| self.gen_type(ty)).collect()?,
-                match ret {
-                    Some(ret) => Box::new(self.gen_type(ret)?),
-                    None => Box::new(ty::VOID_TY),
-                },
-            ),
-            ast::Type::SizedArray {
-                size, inner_type, ..
-            } => ty::Type::SizedArray(
-                self.module.const_eval.eval_usize(size.value()),
-                Box::new(self.gen_type(inner_type)?),
-            ),
-            ast::Type::UnsizedArray { inner_type, .. } => {
-                ty::Type::UnsizedArray(Box::new(self.gen_type(inner_type)?))
-            }
-        };
-        Ok(ty)*/
-        todo!()
-        // let span = ty.span.clone();
-        // let ty = ty::Type::from_ast_type(ty.value(), self.module.const_eval());
-        // if self.type_exists(&ty) {
-        //     Ok(ty)
-        // } else {
-        //     self.err.err(format!("Invalid type {}", ty), &span);
-        //     Ok(ty::err_ty(self.module.ty_ctx()))
-        // }
-    }
-
-    fn gen_name(&self, name: &ast::Name) -> Result<sym::Name<'ty>, ModGenError> {
-        todo!()
-        // Ok(sym::Name<'ty>::from_ast_name(name, self.module.const_eval()))
     }
 
     fn get_var_id(&mut self) -> u32 {
@@ -205,86 +150,111 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         self.label_next = Some(label);
     }
 
-    fn check_generics(&self, name: &sym::Name<'ty>) -> bool {
-        todo!()
-        // match name {
-        //     sym::Name<'ty>::Ident(_, params) => params.iter().all(|t| self.type_exists(t)),
-        //     sym::Name<'ty>::Namespace(_, params, next) => {
-        //         params.iter().all(|t| self.type_exists(t)) && self.check_generics(next.as_ref())
-        //     }
-        // }
+    fn replace_generics(
+        &self,
+        ty: ty::Ty<'ty>,
+        generics: &Vec<(String, ty::Ty<'ty>)>,
+    ) -> ty::Ty<'ty> {
+        use ty::StructType;
+        use ty::TyKind::*;
+
+        match ty.0 .0 {
+            Param(val) => match generics.iter().find(|(pn, _)| pn == val) {
+                Some((_, ty)) => *ty,
+                None => ty,
+            },
+            Pointer(kind, inner) => {
+                let inner = self.replace_generics(*inner, generics);
+                self.module.ty_ctx().int(Pointer(kind.clone(), inner))
+            }
+            Lhs(inner) => {
+                let inner = self.replace_generics(*inner, generics);
+                self.module.ty_ctx().int(Lhs(inner))
+            }
+            SizedArray(size, inner) => {
+                let inner = self.replace_generics(*inner, generics);
+                self.module.ty_ctx().int(SizedArray(*size, inner))
+            }
+            UnsizedArray(inner) => {
+                let inner = self.replace_generics(*inner, generics);
+                self.module.ty_ctx().int(UnsizedArray(inner))
+            }
+            Range(inner) => {
+                let inner = self.replace_generics(*inner, generics);
+                self.module.ty_ctx().int(Range(inner))
+            }
+
+            Tuple(tys) => {
+                let tys: Vec<ty::Ty<'ty>> = tys
+                    .iter()
+                    .map(|ty| self.replace_generics(*ty, generics))
+                    .collect();
+                self.module.ty_ctx().int(Tuple(tys))
+            }
+            Fun(params, ret) => {
+                let ret = self.replace_generics(*ret, generics);
+                let params: Vec<ty::Ty<'ty>> = params
+                    .iter()
+                    .map(|ty| self.replace_generics(*ty, generics))
+                    .collect();
+                self.module.ty_ctx().int(Fun(params, ret))
+            }
+            Struct(StructType {
+                def_id,
+                db_name,
+                ty_params,
+            }) => {
+                let ty_params: Vec<ty::Ty<'ty>> = ty_params
+                    .iter()
+                    .map(|ty| self.replace_generics(*ty, generics))
+                    .collect();
+                self.module.ty_ctx().int(Struct(StructType {
+                    def_id: *def_id,
+                    db_name: db_name.clone(),
+                    ty_params,
+                }))
+            }
+
+            Primitive(_) | Err | Unknown => ty,
+        }
     }
 
-    // fn type_exists(&self, ty: &ty::Ty<'ty>) -> bool {
-    //     match ty {
-    //         ty::Type::Named(name) => {
-    //             self.check_generics(name)
-    //                 && match name {
-    //                     sym::Name<'ty>::Ident(id, params)
-    //                         if params.is_empty() && self.current_generics.contains(id) =>
-    //                     {
-    //                         true
-    //                     }
-    //                     name => match self.module.ty_ctx.root.resolve(&name) {
-    //                         Some(sym::SymbolInfo {
-    //                             symbol: sym::Symbol::Struct { .. },
-    //                             ..
-    //                         })
-    //                         | Some(sym::SymbolInfo {
-    //                             symbol: sym::Symbol::Fun { .. },
-    //                             ..
-    //                         }) => true,
-    //                         _ => false,
-    //                     },
-    //                 }
-    //         }
-    //         ty::Type::Tuple(tys) => tys.iter().all(|ty| self.type_exists(ty)),
-    //         ty::Ty>::Fun(params, ret) => {
-    //             params.iter().all(|ty| self.type_exists(ty)) && self.type_exists(ret.as_ref())
-    //         }
-    //         ty::Type::Pointer(_, ty)
-    //         | ty::Type::SizedArray(_, ty)
-    //         | ty::Type::UnsizedArray(ty)
-    //         | ty::Type::Range(ty)
-    //         | ty::Type::Lhs(ty) => self.type_exists(ty.as_ref()),
-    //         ty::Type::Primitive(_) | ty::err_ty(self.module.ty_ctx()) | ty::Type::Unknown => true,
-    //     }
-    // }
-
-    fn resolve_value(&self, name: &sym::Name<'ty>) -> Option<ty::Ty<'ty>> {
-        // if let sym::Name<'ty>::Ident(id, _) = name {
-        //     if let Some(var) = self.scope.resolve(&id) {
-        //         return if let Some(t) = self.variable_defs.get(var) {
-        //             Some(t.clone())
-        //         } else if let Some(t) = self.params.get(var) {
-        //             Some(t.clone())
-        //         } else {
-        //             None
-        //         };
-        //     }
-        // }
-        // match self.module.ty_ctx.root.resolve(&name) {
-        //     Some(sym::SymbolInfo {
-        //         symbol: sym::Symbol::Struct { .. },
-        //         ..
-        //     }) => todo!("This is an error because structs are types not values"),
-
-        //     Some(sym::SymbolInfo {
-        //         symbol:
-        //             sym::Symbol::Fun {
-        //                 params,
-        //                 return_type,
-        //                 types,
-        //             },
-        //         ..
-        //     }) => Some(ty::Type::Fun(
-        //         params.iter().map(|(_, t)| t.clone()).collect(),
-        //         return_type.clone(),
-        //     )),
-
-        //     _ => None,
-        // }
-        todo!()
+    fn resolve_value(&self, name: &ir::Path, generics: &Vec<ty::Ty<'ty>>) -> Option<ty::Ty<'ty>> {
+        if let ir::Path::Terminal(id) = name {
+            if let Some(var) = self.scope.resolve(&id) {
+                return self
+                    .variable_defs
+                    .get(var)
+                    .cloned()
+                    .or_else(|| self.params.get(var).cloned());
+            }
+        }
+        match self.module.get_def_by_path(name) {
+            Some(ir::Def {
+                kind:
+                    ir::DefKind::Fun {
+                        ty_params,
+                        params,
+                        return_type,
+                    },
+                ..
+            }) => {
+                assert_eq!(ty_params.len(), generics.len());
+                let params = params.iter().map(|(_, t)| *t).collect();
+                // TODO: resolve t-params
+                Some(
+                    self.replace_generics(
+                        self.module
+                            .ty_ctx()
+                            .int(ty::TyKind::Fun(params, *return_type)),
+                        &Iterator::zip(ty_params.iter(), generics.iter())
+                            .map(|(a, b)| (a.clone(), b.clone()))
+                            .collect(),
+                    ),
+                )
+            }
+            _ => todo!("error{}", name),
+        }
     }
 
     fn gen_fun_block(
@@ -417,7 +387,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             ast::Pattern::Tuple(_, patterns, _) => {
                 let global_var_name = self.declare_hidden_var(ty.clone());
                 let lhs_expr =
-                    ir::ExprKind::Ident(sym::Name::Ident(global_var_name.clone(), Vec::new()));
+                    ir::ExprKind::Ident(ir::Path::Terminal(global_var_name.clone()), Vec::new());
                 let lhs_expr = ir::Expr::new(lhs_expr, span.clone(), ty.clone())
                     .lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
@@ -427,15 +397,15 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 );
                 out.push(ir::StmtKind::Expr(Box::new(assign_expr)));
 
-                if let ty::Ty(Int(ty::Type::Tuple(tys))) = &ty {
+                if let ty::Ty(Int(ty::TyKind::Tuple(tys))) = &ty {
                     if tys.len() != patterns.len() {
                         self.err.err("Incompatible pattern types".into(), span);
                     }
                     for (i, (pattern, pat_ty)) in patterns.iter().zip(tys.iter()).enumerate() {
-                        let access_expr = ir::ExprKind::Ident(sym::Name::Ident(
-                            global_var_name.clone(),
+                        let access_expr = ir::ExprKind::Ident(
+                            ir::Path::Terminal(global_var_name.clone()),
                             Vec::new(),
-                        ));
+                        );
                         let access_expr = ir::Expr::new(access_expr, span.clone(), ty.clone());
 
                         let expr = ir::ExprKind::Dot(Box::new(access_expr), format!("_{}", i));
@@ -454,7 +424,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 )?;
                 let ty = expr.ty();
                 let global_var_name = self.declare_var(&id.str().into(), ty.clone());
-                let lhs_expr = ir::ExprKind::Ident(sym::Name::Ident(global_var_name, Vec::new()));
+                let lhs_expr = ir::ExprKind::Ident(ir::Path::Terminal(global_var_name), Vec::new());
                 let lhs_expr = ir::Expr::new(lhs_expr, id.span.clone(), ty.clone())
                     .lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
@@ -592,10 +562,10 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             }
 
             ast::Stmt::ForRange {
-                label,
-                initializer,
-                range,
-                block,
+                label: _,
+                initializer: _,
+                range: _,
+                block: _,
                 ..
             } => todo!(),
 
@@ -636,14 +606,14 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         span: &ast::Span,
         name: &'ast ast::Name,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
-        let name = self.gen_name(name)?;
-        let ty = self.resolve_value(&name);
+        let (name, generics) = self.gen_path_and_generics(name)?;
+        let ty = self.resolve_value(&name, &generics);
         if ty.is_none() {
             self.err
                 .err(format!("Name `{}` not found in scope", span.str()), span);
         }
         let ty = ty.unwrap_or_else(|| ty::err_ty(self.module.ty_ctx()));
-        let expr = ir::ExprKind::Ident(name);
+        let expr = ir::ExprKind::Ident(name, Vec::new());
         let expr = ir::Expr::new(expr, span.clone(), ty);
         Ok(expr)
     }
@@ -716,7 +686,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
 
     fn gen_expr_iter<T>(&mut self, iter: T) -> Result<Vec<ir::Expr<'ty>>, ModGenError>
     where
-        T: std::iter::Iterator<Item = &'ast ast::Spanned<ast::Expr>>,
+        T: Iterator<Item = &'ast ast::Spanned<ast::Expr>>,
     {
         let size_hint = iter.size_hint().0;
         let mut out = Vec::with_capacity(size_hint);
@@ -736,7 +706,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let ty = self
             .module
             .ty_ctx()
-            .int(ty::Type::Tuple(values.iter().map(|v| v.ty()).collect()));
+            .int(ty::TyKind::Tuple(values.iter().map(|v| v.ty()).collect()));
         let expr = ir::ExprKind::Tuple(values);
         let expr = ir::Expr::new(expr, span.clone(), ty);
         Ok(expr)
@@ -782,16 +752,16 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let rhs = self.gen_expr(rhs)?;
 
         let (lhs, rhs) = match (lhs.ty(), rhs.ty()) {
-            (ty::Ty(Int(ty::Type::Pointer(_, _))), ty::Ty(Int(ty::Type::Pointer(_, _)))) => {
+            (ty::Ty(Int(ty::TyKind::Pointer(_, _))), ty::Ty(Int(ty::TyKind::Pointer(_, _)))) => {
                 let ty = ty::void_ty(self.module.ty_ctx()).ptr(self.module.ty_ctx());
                 (self.coerce(lhs, ty)?, self.coerce(rhs, ty)?)
             }
             (
-                ty::Ty(Int(ty::Type::Primitive(lhs_ty))),
-                ty::Ty(Int(ty::Type::Primitive(rhs_ty))),
+                ty::Ty(Int(ty::TyKind::Primitive(lhs_ty))),
+                ty::Ty(Int(ty::TyKind::Primitive(rhs_ty))),
             ) => {
                 let ty = lhs_ty.min(rhs_ty).clone();
-                let ty = self.module.ty_ctx().int(ty::Type::Primitive(ty));
+                let ty = self.module.ty_ctx().int(ty::TyKind::Primitive(ty));
                 (self.coerce(lhs, ty)?, self.coerce(rhs, ty)?)
             }
             _ => (lhs, rhs),
@@ -806,7 +776,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
 
         let ty = match op {
             ir::BinOp::AndAnd | ir::BinOp::OrOr => {
-                if let ty::Ty(Int(ty::Type::Primitive(ty::PrimitiveType::Bool))) = lhs.ty() {
+                if let ty::Ty(Int(ty::TyKind::Primitive(ty::PrimitiveType::Bool))) = lhs.ty() {
                     lhs.ty()
                 } else {
                     self.err.err("Incompatible types".into(), span);
@@ -820,7 +790,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             | ir::BinOp::EqEq
             | ir::BinOp::NotEq
                 if lhs.ty().is_numeric()
-                    || matches!(lhs.ty(), ty::Ty(Int(ty::Type::Pointer(_, _)))) =>
+                    || matches!(lhs.ty(), ty::Ty(Int(ty::TyKind::Pointer(_, _)))) =>
             {
                 ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::Bool)
             }
@@ -852,7 +822,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 ty::err_ty(self.module.ty_ctx())
             }
             ir::UnaryOp::LogNot => {
-                if let ty::Ty(Int(ty::Type::Primitive(ty::PrimitiveType::Bool))) = rhs.ty() {
+                if let ty::Ty(Int(ty::TyKind::Primitive(ty::PrimitiveType::Bool))) = rhs.ty() {
                     rhs.ty()
                 } else {
                     self.err.err("Incompatible types".into(), span);
@@ -861,7 +831,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             }
 
             ir::UnaryOp::Deref => {
-                if let ty::Ty(Int(ty::Type::Pointer(_mutable, ty))) = rhs.ty() {
+                if let ty::Ty(Int(ty::TyKind::Pointer(_mutable, ty))) = rhs.ty() {
                     *ty
                 } else {
                     self.err.err("Incompatible types".into(), span);
@@ -890,7 +860,8 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let mut lhs = self.gen_expr(lhs)?;
         let rhs: String = rhs.str().into();
 
-        while let ty::Ty(Int(ty::Type::Pointer(_mutable, ty))) = lhs.ty().clone() {
+        // Dereferencing
+        while let ty::Ty(Int(ty::TyKind::Pointer(_mutable, ty))) = lhs.ty().clone() {
             lhs = ir::Expr::new(
                 ir::ExprKind::Unary(ir::UnaryOp::Deref, Box::new(lhs)),
                 span.clone(),
@@ -898,53 +869,75 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             );
         }
 
-        /*
-        let ty = match lhs.ty() {
-            ty::Type::Named(struct_name) => {
-                let ty_sym = self.module.root.resolve(struct_name);
-                if let Some(sym::SymbolInfo {
-                    symbol:
-                        sym::Symbol::Struct {
+        let ty = match lhs.ty().0 .0 {
+            ty::TyKind::Struct(ty::StructType {
+                def_id,
+                ty_params: instance_ty_params,
+                ..
+            }) => {
+                let def = self.module.get_def_by_id(*def_id);
+                if let ir::Def {
+                    kind:
+                        ir::DefKind::Struct {
                             members,
                             symbols,
-                            types: struct_ty_params,
+                            ty_params: struct_ty_params,
                         },
                     ..
-                }) = ty_sym
+                } = def
                 {
-                    if let Some(sym::SymbolInfo {
-                        symbol:
-                            sym::Symbol::Fun {
+                    assert_eq!(instance_ty_params.len(), struct_ty_params.len());
+                    if let Some(def_id) = symbols.get(&rhs) {
+                        let def = self.module.get_def_by_id(*def_id);
+                        match &def.kind {
+                            ir::DefKind::Fun {
                                 params,
                                 return_type,
-                                types: fun_ty_params,
-                            },
-                        ..
-                    }) = symbols.get(&rhs)
-                    {
-                        // The type is a method
-                        let fun_name = sym::Name<'ty>::with_end(
-                            &struct_name,
-                            sym::Name<'ty>::Ident(rhs.clone(), Vec::new()),
-                        );
+                                ty_params: fun_ty_params,
+                            } => {
+                                // let self_type = match params.first() {
+                                //     Some((name, ty)) if name == "self" => ty,
+                                //     _ => todo!("err: func must have self"),
+                                // };
+                                // TODO: match self params to body
 
-                        // Type of method
-                        let ty = ty::Type::Fun(
-                            params.iter().map(|v| v.1.clone()).collect(),
-                            return_type.clone(),
-                        );
+                                assert_eq!(instance_ty_params.len(), fun_ty_params.len());
 
-                        let pass_ty_ref = lhs.ty().ptr();
+                                let typ_iter =
+                                    Iterator::zip(fun_ty_params.iter(), instance_ty_params.iter())
+                                        .map(|(a, b)| (a.clone(), b.clone()))
+                                        .collect();
 
-                        let pass_expr = ir::ExprKind::Unary(ir::UnaryOp::Ref, Box::new(lhs));
-                        let pass_expr = ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
+                                let params = params
+                                    .iter()
+                                    .map(|(_, t)| self.replace_generics(*t, &typ_iter))
+                                    .collect();
 
-                        // Struct::method
-                        let expr = ir::ExprKind::Ident(fun_name);
-                        let expr = ir::Expr::new_pass(expr, span.clone(), ty, Box::new(pass_expr));
-                        return Ok(expr);
+                                let ty = self
+                                    .module
+                                    .ty_ctx()
+                                    .int(ty::TyKind::Fun(params, *return_type));
+
+                                let pass_ty_ref = lhs.ty().ptr(self.module.ty_ctx());
+
+                                let pass_expr =
+                                    ir::ExprKind::Unary(ir::UnaryOp::Ref, Box::new(lhs));
+                                let pass_expr = ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
+
+                                // Struct::method
+                                let expr = ir::ExprKind::DefIdent(*def_id, Vec::new());
+                                let expr =
+                                    ir::Expr::new_pass(expr, span.clone(), ty, Box::new(pass_expr));
+                                return Ok(expr);
+                            }
+                            _ => todo!("error"),
+                        }
                     } else if let Some(ty) = members.get(&rhs) {
-                        ty.clone()
+                        let generics =
+                            Iterator::zip(struct_ty_params.iter(), instance_ty_params.iter())
+                                .map(|(a, b)| (a.clone(), *b))
+                                .collect();
+                        self.replace_generics(*ty, &generics)
                     } else {
                         self.err.err("Field not found in struct".into(), span);
                         ty::err_ty(self.module.ty_ctx())
@@ -961,12 +954,10 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 ty::err_ty(self.module.ty_ctx())
             }
         };
-        */
 
-        // let expr = ir::ExprKind::Dot(Box::new(lhs), rhs);
-        // let expr = ir::Expr::new(expr, span.clone(), ty);
-        // Ok(expr)
-        todo!()
+        let expr = ir::ExprKind::Dot(Box::new(lhs), rhs);
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
     }
 
     fn gen_cast_expr(
@@ -980,15 +971,15 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
 
         let ty = match (expr.ty().0 .0, ty.0 .0) {
             (
-                ty::Type::Primitive(ty::PrimitiveType::Void),
-                ty::Type::Primitive(ty::PrimitiveType::Void),
+                ty::TyKind::Primitive(ty::PrimitiveType::Void),
+                ty::TyKind::Primitive(ty::PrimitiveType::Void),
             ) => {
                 self.err.err("Cannot cast void".into(), span);
                 ty::err_ty(self.module.ty_ctx())
             }
             (
-                ty::Type::Primitive(ty::PrimitiveType::Bool),
-                ty::Type::Primitive(ty::PrimitiveType::Bool),
+                ty::TyKind::Primitive(ty::PrimitiveType::Bool),
+                ty::TyKind::Primitive(ty::PrimitiveType::Bool),
             ) => {
                 self.err.err("Cannot cast bool".into(), span);
                 ty::err_ty(self.module.ty_ctx())
@@ -1013,7 +1004,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let else_expr = self.gen_expr_coerce(else_expr, then_expr.ty())?;
 
         match condition.ty().0 .0 {
-            ty::Type::Primitive(ty::PrimitiveType::Bool) => (),
+            ty::TyKind::Primitive(ty::PrimitiveType::Bool) => (),
             _ => {
                 self.err.err(
                     "If statement condition must be bool type".into(),
@@ -1062,7 +1053,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         }
         macro_rules! check_type {
             ($e: expr) => {
-                if let ty::Type::Primitive(ty::PrimitiveType::USize) = $e.0.0 {
+                if let ty::TyKind::Primitive(ty::PrimitiveType::USize) = $e.0.0 {
                     ()
                 } else {
                     self.err.err("Range values must be usize".into(), span);
@@ -1105,7 +1096,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let fun_pass = std::mem::take(expr.fun_pass_mut());
 
         let (params, return_type) = match expr.ty().0 .0 {
-            ty::Type::Fun(params, return_type) => (params, return_type),
+            ty::TyKind::Fun(params, return_type) => (params, return_type),
             _ => {
                 self.err.err("Expected function type".into(), span);
                 return Ok(ir::Expr::new(
@@ -1169,7 +1160,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::USize),
         )?;
 
-        while let ty::Type::Pointer(_mutable, ty) = expr.ty().0 .0 {
+        while let ty::TyKind::Pointer(_mutable, ty) = expr.ty().0 .0 {
             expr = ir::Expr::new(
                 ir::ExprKind::Unary(ir::UnaryOp::Deref, Box::new(expr)),
                 span.clone(),
@@ -1178,14 +1169,14 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         }
 
         let ty = match (expr.ty().0 .0, index.ty().0 .0) {
-            (ty::Type::UnsizedArray(inner_ty), ty::Type::Range(v))
-                if matches!(v.0 .0, ty::Type::Primitive(ty::PrimitiveType::USize)) =>
+            (ty::TyKind::UnsizedArray(inner_ty), ty::TyKind::Range(v))
+                if matches!(v.0 .0, ty::TyKind::Primitive(ty::PrimitiveType::USize)) =>
             {
                 inner_ty.slice_ty(self.module.ty_ctx())
             }
             (
-                ty::Type::UnsizedArray(inner_ty) | ty::Type::SizedArray(_, inner_ty),
-                ty::Type::Primitive(ty::PrimitiveType::USize),
+                ty::TyKind::UnsizedArray(inner_ty) | ty::TyKind::SizedArray(_, inner_ty),
+                ty::TyKind::Primitive(ty::PrimitiveType::USize),
             ) => *inner_ty,
             _ => ty::err_ty(self.module.ty_ctx()),
         };
@@ -1222,7 +1213,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         let ty = self
             .module
             .ty_ctx()
-            .int(ty::Type::SizedArray(members.len(), ty));
+            .int(ty::TyKind::SizedArray(members.len(), ty));
 
         let expr = ir::ExprKind::Array { members };
         let expr = ir::Expr::new(expr, span.clone(), ty);
@@ -1236,72 +1227,74 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Expr>)>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let type_name_span = type_name.span.clone();
-        let type_name = self.gen_name(type_name.value())?;
-        // let mut members: Vec<(String, _)> = members
-        //     .iter()
-        //     .map(|ast::Spanned { value: (id, v), .. }| {
-        //         Ok((id.str().into(), Box::new(self.gen_expr(v)?)))
-        //     })
-        //     .collect::<Result<Vec<_>, ModGenError>>()?;
-        /*
-                let ty = if let Some(sym::SymbolInfo {
-                    symbol:
-                        sym::Symbol::Struct {
-                            members: struct_members,
-                            ..
-                        },
+        let (type_name, type_generics) = self.gen_path_and_generics(type_name.value())?;
+        let mut members: Vec<(String, _)> = members
+            .iter()
+            .map(|ast::Spanned { value: (id, v), .. }| {
+                Ok((id.str().into(), Box::new(self.gen_expr(v)?)))
+            })
+            .collect::<Result<Vec<_>, ModGenError>>()?;
+
+        let ty = if let Some(ir::Def {
+            kind:
+                ir::DefKind::Struct {
+                    members: struct_members,
                     ..
-                }) = self.module.root.resolve(&type_name)
-                {
-                    if struct_members.len() != members.len() {
-                        self.err
-                            .err("Missing or extra struct fields".into(), &type_name_span);
-                        ty::err_ty(self.module.ty_ctx())
-                    } else {
-                        let mut failed = false;
-                        for (name, expr) in &mut members {
-                            match struct_members.get(name) {
-                                Some(member) => {
-                                    {
-                                        let expr_ref = expr.as_mut();
-                                        // Hax
-                                        let expr = std::mem::replace(
-                                            expr_ref,
-                                            ir::Expr::new(
-                                                ir::ExprKind::Err,
-                                                ast::Span::dummy(),
-                                                ty::err_ty(self.module.ty_ctx()),
-                                            ),
-                                        );
-                                        // std::mem::
-                                        *expr_ref = self.coerce(expr, &member)?;
-                                    }
-                                    if expr.ty() != member {
-                                        self.err.err("Invalid type".into(), expr.span());
-                                        failed = true;
-                                    }
-                                }
-                                None => {
-                                    self.err.err("Field doesn't exist".into(), expr.span());
-                                    failed = true;
-                                }
-                            };
+                },
+            ..
+        }) = self.module.get_def_by_path(&type_name)
+        {
+            let def_id = self.module.get_def_id_by_path(&type_name).unwrap();
+            if struct_members.len() != members.len() {
+                self.err
+                    .err("Missing or extra struct fields".into(), &type_name_span);
+                ty::err_ty(self.module.ty_ctx())
+            } else {
+                let mut failed = false;
+                for (name, expr) in &mut members {
+                    match struct_members.get(name) {
+                        Some(member) => {
+                            {
+                                let expr_ref = expr.as_mut();
+                                // Hax
+                                let expr = std::mem::replace(
+                                    expr_ref,
+                                    ir::Expr::new(
+                                        ir::ExprKind::Err,
+                                        ast::Span::dummy(),
+                                        ty::err_ty(self.module.ty_ctx()),
+                                    ),
+                                );
+                                *expr_ref = self.coerce(expr, *member)?;
+                            }
+                            if expr.ty() != *member {
+                                self.err.err("Invalid type".into(), expr.span());
+                                failed = true;
+                            }
                         }
-                        if failed {
-                            ty::err_ty(self.module.ty_ctx())
-                        } else {
-                            ty::Type::Named(type_name.clone())
+                        None => {
+                            self.err.err("Field doesn't exist".into(), expr.span());
+                            failed = true;
                         }
-                    }
-                } else {
-                    self.err.err("Invalid struct name".into(), &type_name_span);
+                    };
+                }
+                if failed {
                     ty::err_ty(self.module.ty_ctx())
-                };
-        */
-        // let expr = ir::ExprKind::Struct { type_name, members };
-        // let expr = ir::Expr::new(expr, span.clone(), ty);
-        // Ok(expr)
-        todo!()
+                } else {
+                    self.module.ty_ctx().int(ty::TyKind::Struct(ty::StructType {
+                        def_id,
+                        db_name: format!("{}", type_name),
+                        ty_params: type_generics,
+                    }))
+                }
+            }
+        } else {
+            self.err.err("Invalid struct name".into(), &type_name_span);
+            ty::err_ty(self.module.ty_ctx())
+        };
+        let expr = ir::ExprKind::Struct { ty, members };
+        let expr = ir::Expr::new(expr, span.clone(), ty);
+        Ok(expr)
     }
 
     fn gen_expr_coerce(
@@ -1320,29 +1313,32 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let expr_span = expr.span().clone();
         match (ty.0 .0, expr.ty().0 .0) {
-            (ty::Type::Pointer(ptr_kind, inner_ty), ty::Type::Pointer(_, _))
+            (ty::TyKind::Pointer(ptr_kind, inner_ty), ty::TyKind::Pointer(_, _))
                 if matches!(expr.kind(), ir::ExprKind::Null) =>
             {
                 let ty = self
                     .module
                     .ty_ctx()
-                    .int(ty::Type::Pointer(ptr_kind.clone(), inner_ty.clone()));
+                    .int(ty::TyKind::Pointer(ptr_kind.clone(), inner_ty.clone()));
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);
                 let expr = ir::Expr::new(expr, expr_span, ty);
                 Ok(expr)
             }
-            (ty::Type::Pointer(ptr_kind, inner_ty), ty::Type::Pointer(_, _))
-                if matches!(inner_ty.0 .0, ty::Type::Primitive(ty::PrimitiveType::Void)) =>
+            (ty::TyKind::Pointer(ptr_kind, inner_ty), ty::TyKind::Pointer(_, _))
+                if matches!(
+                    inner_ty.0 .0,
+                    ty::TyKind::Primitive(ty::PrimitiveType::Void)
+                ) =>
             {
                 let ty = self
                     .module
                     .ty_ctx()
-                    .int(ty::Type::Pointer(ptr_kind.clone(), inner_ty.clone()));
+                    .int(ty::TyKind::Pointer(ptr_kind.clone(), inner_ty.clone()));
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);
                 let expr = ir::Expr::new(expr, expr_span, ty);
                 Ok(expr)
             }
-            (ty::Type::Primitive(target), ty::Type::Primitive(current))
+            (ty::TyKind::Primitive(target), ty::TyKind::Primitive(current))
                 if current.is_integral() && target.is_integral() && target < current =>
             {
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);

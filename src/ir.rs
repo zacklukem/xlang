@@ -1,41 +1,194 @@
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
-use crate::intern::Arena;
-use crate::symbol::{Name, Symbol, TyCtx};
-use crate::ty::Ty;
+use crate::ty::{Ty, TyCtx};
+use std::collections::HashMap;
 
 pub struct Fun<'ty> {
-    pub name: Name<'ty>,
+    pub def_id: DefId,
+    pub db_name: String,
     pub variable_defs: Vec<(String, Ty<'ty>)>,
     pub block: Stmt<'ty>,
 }
 
+/// Represents a definition (struct, mod, or fun)
+///
+/// Generate using `Module::get_def_id` or other `Module` declaration functions
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub struct DefId {
+    id: u32,
+}
+
+/// The visibility of a symbol relative to its parent module
+#[derive(Debug)]
+pub enum DefVisibility {
+    Public,
+    Private,
+}
+
+#[derive(Debug)]
+pub struct Def<'ty> {
+    pub visibility: DefVisibility,
+    pub kind: DefKind<'ty>,
+}
+
+impl Def<'_> {
+    pub fn new(visibility: DefVisibility, kind: DefKind) -> Def {
+        Def { visibility, kind }
+    }
+}
+
+#[derive(Debug)]
+pub enum DefKind<'ty> {
+    Mod {
+        symbols: HashMap<String, DefId>,
+    },
+    Struct {
+        ty_params: Vec<String>,
+        members: HashMap<String, Ty<'ty>>,
+        symbols: HashMap<String, DefId>,
+    },
+    Fun {
+        ty_params: Vec<String>,
+        params: Vec<(String, Ty<'ty>)>,
+        return_type: Ty<'ty>,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum Path {
+    Terminal(String),
+    Namespace(String, Box<Path>),
+}
+
+impl std::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use Path::*;
+        match self {
+            Terminal(st) => f.write_str(&st),
+            Namespace(st, next) => {
+                f.write_str(&st)?;
+                f.write_str("::")?;
+                next.fmt(f)
+            }
+        }
+    }
+}
+
+impl Path {
+    pub fn is_terminal(&self) -> bool {
+        use Path::*;
+        matches!(self, Terminal(_))
+    }
+
+    pub fn pop_end(&self) -> Option<Path> {
+        use Path::*;
+        match self {
+            Terminal(_) => None,
+            Namespace(name, next) if next.is_terminal() => Some(Terminal(name.clone())),
+            Namespace(name, path) => {
+                Some(Namespace(name.clone(), Box::new(path.pop_end().unwrap())))
+            }
+        }
+    }
+
+    pub fn end(&self) -> &String {
+        use Path::*;
+        match self {
+            Terminal(val) => val,
+            Namespace(_, path) => path.end(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum DefineErr {
+    AlreadyExists,
+    NoModule,
+    DeclareOnFun,
+}
+
 #[derive(Debug)]
 pub struct Module<'ty> {
-    pub symbols: Vec<Name<'ty>>,
+    next_id: u32,
+    defs: HashMap<DefId, Def<'ty>>,
+    def_paths: HashMap<Path, DefId>,
     pub functions: Vec<Fun<'ty>>,
     pub ty_ctx: TyCtx<'ty>,
     pub const_eval: ConstEvaluator,
-    pub root: Symbol<'ty>,
 }
 
 impl<'ty> Module<'ty> {
     /// Create a new empty module
     pub fn new(ty_ctx: TyCtx<'ty>) -> Module<'ty> {
         Module {
-            root: Symbol::Mod {
-                symbols: Default::default(),
-            },
+            next_id: 0,
+            defs: Default::default(),
+            def_paths: Default::default(),
             ty_ctx,
             functions: Default::default(),
-            symbols: Default::default(),
             const_eval: ConstEvaluator {},
         }
     }
 
-    /// Get the module's symbols
-    pub fn symbols(&self) -> &Vec<Name> {
-        &self.symbols
+    pub fn get_def_id(&mut self) -> DefId {
+        let id = self.next_id;
+        self.next_id += 1;
+        DefId { id }
+    }
+
+    pub fn declare_with(
+        &mut self,
+        path: Path,
+        id: DefId,
+        def: Def<'ty>,
+    ) -> Result<DefId, DefineErr> {
+        use DefineErr::*;
+        if self.def_paths.contains_key(&path) {
+            Err(AlreadyExists)
+        } else {
+            self.defs.insert(id, def);
+            match path.pop_end() {
+                Some(head_path) => {
+                    match &mut self.get_mut_def_by_path(&head_path).ok_or(NoModule)?.kind {
+                        DefKind::Mod { symbols, .. } | DefKind::Struct { symbols, .. } => {
+                            let end = path.end().clone();
+                            assert!(symbols.insert(end, id).is_none(), "symbol already inserted");
+                        }
+                        _ => {
+                            return Err(DeclareOnFun);
+                        }
+                    }
+                }
+                None => (),
+            }
+            self.def_paths.insert(path, id);
+            Ok(id)
+        }
+    }
+
+    pub fn declare(&mut self, path: Path, def: Def<'ty>) -> Result<DefId, DefineErr> {
+        let id = self.get_def_id();
+        self.declare_with(path, id, def)
+    }
+
+    pub fn get_def_by_id(&self, id: DefId) -> &Def<'ty> {
+        self.defs.get(&id).unwrap()
+    }
+
+    pub fn get_mut_def_by_id(&mut self, id: DefId) -> &mut Def<'ty> {
+        self.defs.get_mut(&id).unwrap()
+    }
+
+    pub fn get_def_id_by_path(&self, path: &Path) -> Option<DefId> {
+        self.def_paths.get(path).map(Clone::clone)
+    }
+
+    pub fn get_def_by_path(&self, path: &Path) -> Option<&Def<'ty>> {
+        self.def_paths.get(path).map(|id| self.get_def_by_id(*id))
+    }
+
+    pub fn get_mut_def_by_path(&mut self, path: &Path) -> Option<&mut Def<'ty>> {
+        Some(self.get_mut_def_by_id(*self.def_paths.get(path)?))
     }
 
     /// Get the module ty context
@@ -275,7 +428,8 @@ impl From<&ast::UnaryOp> for UnaryOp {
 
 #[derive(Debug)]
 pub enum ExprKind<'ty> {
-    Ident(Name<'ty>),
+    Ident(Path, Vec<Ty<'ty>>),
+    DefIdent(DefId, Vec<Ty<'ty>>),
     Integer(IntegerSpecifier),
     Float(FloatSpecifier),
     String(String),
@@ -321,7 +475,7 @@ pub enum ExprKind<'ty> {
 
     // MyStruct { name: value, name: value }
     Struct {
-        type_name: Name<'ty>,
+        ty: Ty<'ty>,
         members: Vec<(String, Box<Expr<'ty>>)>,
     },
 
