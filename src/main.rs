@@ -10,6 +10,7 @@ pub mod ir_display;
 pub mod ir_gen;
 pub mod mod_gen;
 pub mod ty;
+pub mod ty_mangle;
 
 lalrpop_mod!(pub parser);
 

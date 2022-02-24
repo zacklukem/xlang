@@ -16,6 +16,7 @@ struct<T> Node {
 }
 
 fun<T> List::<T>::len(*self) -> usize {
+    let a = List::len::<T>;
     if self.head == null {
         return 0;
     } else {
