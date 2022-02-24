@@ -1,103 +1,107 @@
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
+use crate::intern::Arena;
 use crate::symbol::{Name, Symbol, TyCtx};
-use crate::ty::Type;
+use crate::ty::Ty;
 
-pub struct Fun {
-    pub name: Name,
-    pub variable_defs: Vec<(String, Type)>,
-    pub block: Stmt,
+pub struct Fun<'ty> {
+    pub name: Name<'ty>,
+    pub variable_defs: Vec<(String, Ty<'ty>)>,
+    pub block: Stmt<'ty>,
 }
 
 #[derive(Debug)]
-pub struct Module {
-    pub symbols: Vec<Name>,
-    pub functions: Vec<Fun>,
-    pub ty_ctx: TyCtx,
+pub struct Module<'ty> {
+    pub symbols: Vec<Name<'ty>>,
+    pub functions: Vec<Fun<'ty>>,
+    pub ty_ctx: TyCtx<'ty>,
     pub const_eval: ConstEvaluator,
+    pub root: Symbol<'ty>,
 }
 
-impl Module {
-    pub fn new() -> Module {
-        let ty_ctx = TyCtx {
+impl<'ty> Module<'ty> {
+    /// Create a new empty module
+    pub fn new(ty_ctx: TyCtx<'ty>) -> Module<'ty> {
+        Module {
             root: Symbol::Mod {
                 symbols: Default::default(),
             },
-        };
-        Module {
             ty_ctx,
             functions: Default::default(),
             symbols: Default::default(),
             const_eval: ConstEvaluator {},
         }
     }
+
+    /// Get the module's symbols
     pub fn symbols(&self) -> &Vec<Name> {
         &self.symbols
     }
-    pub fn ty_ctx(&self) -> &TyCtx {
-        &self.ty_ctx
+
+    /// Get the module ty context
+    pub fn ty_ctx(&self) -> TyCtx<'ty> {
+        self.ty_ctx
     }
-    pub fn ty_ctx_mut(&mut self) -> &mut TyCtx {
-        &mut self.ty_ctx
-    }
+
+    /// Get the module's const evaluator
     pub fn const_eval(&self) -> &ConstEvaluator {
         &self.const_eval
     }
 }
 
 #[derive(Debug)]
-pub struct Stmt {
-    pub kind: StmtKind,
+pub struct Stmt<'ty> {
+    pub kind: StmtKind<'ty>,
     pub span: Span,
 }
 
-impl Stmt {
+impl Stmt<'_> {
     pub fn new(kind: StmtKind, span: Span) -> Stmt {
         Stmt { kind, span }
     }
 }
 
 #[derive(Debug)]
-pub enum StmtKind {
+pub enum StmtKind<'ty> {
     If {
-        condition: Box<Expr>,
-        block: Box<Stmt>,
-        else_block: Option<Box<Stmt>>,
+        condition: Box<Expr<'ty>>,
+        block: Box<Stmt<'ty>>,
+        else_block: Option<Box<Stmt<'ty>>>,
     },
 
     While {
-        condition: Box<Expr>,
-        block: Box<Stmt>,
+        condition: Box<Expr<'ty>>,
+        block: Box<Stmt<'ty>>,
     },
 
     For {
-        initializer: Box<Stmt>,
-        condition: Box<Expr>,
-        incrementor: Box<Expr>,
-        block: Box<Stmt>,
+        initializer: Box<Stmt<'ty>>,
+        condition: Box<Expr<'ty>>,
+        incrementor: Box<Expr<'ty>>,
+        block: Box<Stmt<'ty>>,
     },
 
-    Labeled(String, Option<Box<Stmt>>),
+    Labeled(String, Option<Box<Stmt<'ty>>>),
 
-    Block(Vec<Stmt>),
-    StmtList(Vec<Stmt>),
-    Return(Option<Box<Expr>>),
+    Block(Vec<Stmt<'ty>>),
+    StmtList(Vec<Stmt<'ty>>),
+    Return(Option<Box<Expr<'ty>>>),
     Goto(String),
 
-    Expr(Box<Expr>),
+    Expr(Box<Expr<'ty>>),
 }
 
 #[derive(Debug)]
-pub struct Expr {
-    pub kind: ExprKind,
+pub struct Expr<'ty> {
+    pub kind: ExprKind<'ty>,
     pub span: Span,
-    pub ty: Type,
+    pub ty: Ty<'ty>,
     /// Field to pass to first arg of function
-    pub fun_pass: Option<Box<Expr>>,
+    pub fun_pass: Option<Box<Expr<'ty>>>,
 }
 
-impl Expr {
-    pub fn new(kind: ExprKind, span: Span, ty: Type) -> Expr {
+impl<'ty> Expr<'ty> {
+    pub fn new(kind: ExprKind<'ty>, span: Span, ty: Ty<'ty>) -> Expr<'ty> {
         Expr {
             kind,
             span,
@@ -106,7 +110,12 @@ impl Expr {
         }
     }
 
-    pub fn new_pass(kind: ExprKind, span: Span, ty: Type, fun_pass: Box<Expr>) -> Expr {
+    pub fn new_pass(
+        kind: ExprKind<'ty>,
+        span: Span,
+        ty: Ty<'ty>,
+        fun_pass: Box<Expr<'ty>>,
+    ) -> Expr<'ty> {
         Expr {
             kind,
             span,
@@ -119,13 +128,13 @@ impl Expr {
         &self.fun_pass
     }
 
-    pub fn fun_pass_mut(&mut self) -> &mut Option<Box<Expr>> {
+    pub fn fun_pass_mut(&mut self) -> &mut Option<Box<Expr<'ty>>> {
         &mut self.fun_pass
     }
 
-    pub fn lhs_expr(self) -> Expr {
+    pub fn lhs_expr(self, ctx: TyCtx<'ty>) -> Expr<'ty> {
         let span = self.span.clone();
-        let ty = self.ty.mut_ptr();
+        let ty = self.ty.mut_ptr(ctx);
         Expr::new(ExprKind::LhsExpr(Box::new(self)), span, ty)
     }
 
@@ -136,8 +145,8 @@ impl Expr {
         &self.span
     }
 
-    pub fn ty(&self) -> &Type {
-        &self.ty
+    pub fn ty(&self) -> Ty<'ty> {
+        self.ty
     }
 }
 
@@ -265,8 +274,8 @@ impl From<&ast::UnaryOp> for UnaryOp {
 }
 
 #[derive(Debug)]
-pub enum ExprKind {
-    Ident(Name),
+pub enum ExprKind<'ty> {
+    Ident(Name<'ty>),
     Integer(IntegerSpecifier),
     Float(FloatSpecifier),
     String(String),
@@ -274,46 +283,46 @@ pub enum ExprKind {
 
     Null,
 
-    LhsExpr(Box<Expr>),
+    LhsExpr(Box<Expr<'ty>>),
 
-    Tuple(Vec<Expr>),
+    Tuple(Vec<Expr<'ty>>),
 
-    Assign(Box<Expr>, AssignOp, Box<Expr>),
-    Binary(Box<Expr>, BinOp, Box<Expr>),
-    Unary(UnaryOp, Box<Expr>),
-    Dot(Box<Expr>, String),
-    Cast(Box<Expr>, Box<Type>),
+    Assign(Box<Expr<'ty>>, AssignOp, Box<Expr<'ty>>),
+    Binary(Box<Expr<'ty>>, BinOp, Box<Expr<'ty>>),
+    Unary(UnaryOp, Box<Expr<'ty>>),
+    Dot(Box<Expr<'ty>>, String),
+    Cast(Box<Expr<'ty>>, Ty<'ty>),
 
-    Range(Box<Expr>, Box<Expr>),
-    RangeFrom(Box<Expr>),
+    Range(Box<Expr<'ty>>, Box<Expr<'ty>>),
+    RangeFrom(Box<Expr<'ty>>),
 
     Ternary {
-        condition: Box<Expr>,
-        then_expr: Box<Expr>,
-        else_expr: Box<Expr>,
+        condition: Box<Expr<'ty>>,
+        then_expr: Box<Expr<'ty>>,
+        else_expr: Box<Expr<'ty>>,
     },
 
     // expr(index, ...)
     Call {
-        expr: Box<Expr>,
-        arguments: Vec<Expr>,
+        expr: Box<Expr<'ty>>,
+        arguments: Vec<Expr<'ty>>,
     },
 
     // expr[index]
     Index {
-        expr: Box<Expr>,
-        index: Box<Expr>,
+        expr: Box<Expr<'ty>>,
+        index: Box<Expr<'ty>>,
     },
 
     // [a, b, c, d]
     Array {
-        members: Vec<Expr>,
+        members: Vec<Expr<'ty>>,
     },
 
     // MyStruct { name: value, name: value }
     Struct {
-        type_name: Name,
-        members: Vec<(String, Box<Expr>)>,
+        type_name: Name<'ty>,
+        members: Vec<(String, Box<Expr<'ty>>)>,
     },
 
     Err,

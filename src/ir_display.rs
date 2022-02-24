@@ -1,8 +1,11 @@
 use crate::ir::*;
-use crate::ty::{PointerType, Type};
+use crate::ty::{PointerType, StructType, Ty, Type};
 use std::fmt::{Display, Write};
 
-fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fmt::Result {
+fn write_type_array<'k, 'a>(
+    f: &mut std::fmt::Formatter<'_>,
+    arr: &'k Vec<Ty<'a>>,
+) -> std::fmt::Result {
     for (i, ty) in arr.iter().enumerate() {
         ty.fmt(f)?;
         if i != arr.len() - 1 {
@@ -12,10 +15,11 @@ fn write_type_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Type>) -> std::fm
     Ok(())
 }
 
-pub fn type_array_str(arr: &Vec<Type>) -> String {
+pub fn type_array_str<'k, 'a>(arr: &'k Vec<Ty<'a>>) -> String {
     let mut out = String::new();
     for (i, ty) in arr.iter().enumerate() {
-        out += &format!("{}", ty)[..];
+        let ty = format!("{}", *ty);
+        out += &ty[..];
         if i != arr.len() - 1 {
             out += ", ";
         }
@@ -23,12 +27,18 @@ pub fn type_array_str(arr: &Vec<Type>) -> String {
     out
 }
 
-impl Display for Type {
+impl Display for Ty<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0 .0.fmt(f)
+    }
+}
+
+impl Display for Type<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Type::Param(p) => f.write_str(&p),
             Type::Primitive(pt) => write!(f, "{:?}", pt),
-            Type::Struct { name, .. } => write!(f, "{}", name),
+            Type::Struct(StructType { name, .. }) => write!(f, "{}", name),
             Type::Pointer(PointerType::Star, ty) => write!(f, "*{}", ty),
             Type::Pointer(PointerType::StarMut, ty) => write!(f, "*mut {}", ty),
             Type::Tuple(tys) => {
@@ -51,7 +61,7 @@ impl Display for Type {
     }
 }
 
-impl std::fmt::Debug for Fun {
+impl std::fmt::Debug for Fun<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "fun {}\n", self.name)?;
 
@@ -81,13 +91,13 @@ impl std::fmt::Debug for Fun {
     }
 }
 
-impl Display for Stmt {
+impl Display for Stmt<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.kind.fmt(f)
     }
 }
 
-impl Display for StmtKind {
+impl Display for StmtKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StmtKind::If {
@@ -143,7 +153,7 @@ impl Display for StmtKind {
     }
 }
 
-impl Display for Expr {
+impl Display for Expr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // write!(f, "{}<{}>", self.kind(), self.ty())
         write!(f, "{}", self.kind())
@@ -245,7 +255,7 @@ fn write_expr_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Expr>) -> std::fm
     Ok(())
 }
 
-impl Display for ExprKind {
+impl Display for ExprKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExprKind::Null => f.write_str("null"),

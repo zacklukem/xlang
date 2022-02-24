@@ -4,6 +4,7 @@ extern crate lalrpop_util;
 pub mod ast;
 pub mod const_eval;
 pub mod error_context;
+pub mod intern;
 pub mod ir;
 pub mod ir_display;
 pub mod ir_gen;
@@ -42,12 +43,15 @@ fn main() {
         Ok(ast_module) => ast_module,
     };
 
-    let mut module = ir::Module::new();
+    let tyc = symbol::TyCtxContainer::new();
+
+    let mut module = ir::Module::new(tyc.ctx());
 
     let mut err = error_context::ErrorContext {};
 
-    let mut mod_gen = mod_gen::ModGen::new(&mut module, &mut err, &ast_module);
+    let mut mod_gen = mod_gen::ModGen::new(module, err, &ast_module);
     mod_gen.run().unwrap();
+    let (module, _err) = mod_gen.finish();
 
     println!("TyCtx: {:#?}", module.ty_ctx);
 

@@ -6,10 +6,10 @@ use crate::symbol as sym;
 use crate::ty;
 use std::collections::HashMap;
 
-pub struct ModGen<'mg> {
-    ast_module: &'mg ast::Module,
-    module: &'mg mut ir::Module,
-    err: &'mg mut ErrorContext,
+pub struct ModGen<'ast, 'ty> {
+    ast_module: &'ast ast::Module,
+    module: ir::Module<'ty>,
+    err: ErrorContext,
     current_generics: Vec<String>,
 }
 
@@ -27,27 +27,20 @@ impl From<sym::SymbolDeclError> for ModGenError {
     }
 }
 
-impl<'mg> ModGen<'mg> {
-    fn gen_type(&mut self, ty: &ast::Spanned<ast::Type>) -> Result<ty::Type, ModGenError> {
-        let span = ty.span.clone();
-        let ty = ty::Type::from_ast_type(ty.value(), self.module.const_eval());
-        if self.type_exists(&ty) {
-            Ok(ty)
-        } else {
-            self.err.err(format!("Invalid type {}", ty), &span);
-            Ok(ty::Type::Err)
-        }
+impl<'ast, 'ty> ModGen<'ast, 'ty> {
+    fn gen_type(&mut self, ty: &'ast ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
+        todo!()
     }
 
-    fn gen_name(&self, name: &ast::Name) -> Result<sym::Name, ModGenError> {
-        Ok(sym::Name::from_ast_name(name, self.module.const_eval()))
+    fn gen_name(&self, name: &'ast ast::Name) -> Result<sym::Name<'ty>, ModGenError> {
+        todo!()
     }
 
     pub fn new(
-        module: &'mg mut ir::Module,
-        err: &'mg mut ErrorContext,
-        ast_module: &'mg ast::Module,
-    ) -> ModGen<'mg> {
+        module: ir::Module<'ty>,
+        err: ErrorContext,
+        ast_module: &'ast ast::Module,
+    ) -> ModGen<'ast, 'ty> {
         ModGen {
             ast_module,
             module,
@@ -56,13 +49,17 @@ impl<'mg> ModGen<'mg> {
         }
     }
 
+    pub fn finish(self) -> (ir::Module<'ty>, ErrorContext) {
+        (self.module, self.err)
+    }
+
     /// declare
     fn declare(
         &mut self,
-        name: &sym::Name,
-        symbol: sym::SymbolInfo,
+        name: &sym::Name<'ty>,
+        symbol: sym::SymbolInfo<'ty>,
     ) -> Result<(), sym::SymbolDeclError> {
-        self.module.ty_ctx_mut().root.declare(name, symbol)
+        self.module.root.declare(name, symbol)
     }
 
     pub fn run(&mut self) -> Result<(), ModGenError> {
@@ -135,17 +132,17 @@ impl<'mg> ModGen<'mg> {
     /// Define a function type in second pass
     fn define_fun_type(
         &mut self,
-        pub_tok: &Option<ast::Span>,
-        type_params: &Vec<ast::Span>,
-        ast_fun_name: &ast::Spanned<ast::Name>,
-        (self_type, params): &ast::FunParams,
-        return_type: &Option<ast::SpanBox<ast::Type>>,
+        pub_tok: &'ast Option<ast::Span>,
+        type_params: &'ast Vec<ast::Span>,
+        ast_fun_name: &'ast ast::Spanned<ast::Name>,
+        (self_type, params): &'ast ast::FunParams,
+        return_type: &'ast Option<ast::SpanBox<ast::Type>>,
     ) -> Result<(), ModGenError> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
         let fun_name: sym::Name = self.gen_name(ast_fun_name.value())?;
-        let self_param = if self_type.is_some() {
+        let self_param: Option<ty::Ty<'ty>> = if self_type.is_some() {
             if fun_name.is_ident() {
                 self.err.err(
                     format!("Functions with self type must be members of struct namespace"),
@@ -154,12 +151,16 @@ impl<'mg> ModGen<'mg> {
                 None
             } else {
                 let struct_name = fun_name.pop_end().unwrap();
-                match self.module.ty_ctx().root.resolve(&struct_name) {
-                    Some(symbol_info)
-                        if matches!(symbol_info.symbol, sym::Symbol::Struct { .. }) =>
-                    {
-                        Some(ty::Type::Named(struct_name).ptr())
-                    }
+                match self.module.root.resolve(&struct_name) {
+                    Ok(sym::SymbolInfo {
+                        symbol: sym::Symbol::Struct { .. },
+                        ..
+                    }) => Some(
+                        self.module
+                            .root
+                            .resolve_ty(&struct_name, self.module.ty_ctx())
+                            .unwrap(),
+                    ),
                     _ => {
                         self.err.err(
                             format!("Functions with self type must be members of struct namespace"),
@@ -177,11 +178,20 @@ impl<'mg> ModGen<'mg> {
         } else {
             vec![]
         };
-        let mut params_mapped = params
-            .iter()
-            .map(ast::Spanned::value)
-            .map(|(name, ty)| Ok((String::from(name.str()), self.gen_type(ty)?)))
-            .collect::<Result<Vec<_>, ModGenError>>()?;
+
+        let mut params_mapped = {
+            let mut out = Vec::with_capacity(params.len());
+            for ast::Spanned {
+                value: (name, ty), ..
+            } in params.iter()
+            {
+                out.push((
+                    String::from(name.str()),
+                    ModGen::<'ast, 'ty>::gen_type(self, ty)?,
+                ));
+            }
+            out
+        };
 
         fun_params.append(&mut params_mapped);
         let visibility = if pub_tok.is_some() {
@@ -190,8 +200,8 @@ impl<'mg> ModGen<'mg> {
             sym::SymbolVisibility::Private
         };
         let return_type = match return_type {
-            Some(ty) => Box::new(self.gen_type(ty.as_ref())?),
-            None => Box::new(ty::Type::Primitive(sym::PrimitiveType::Void)),
+            Some(ty) => self.gen_type(ty)?,
+            None => ty::void_ty(self.module.ty_ctx()),
         };
         let symbol = sym::Symbol::Fun {
             params: fun_params,
@@ -207,9 +217,9 @@ impl<'mg> ModGen<'mg> {
     /// Define a struct in second pass
     fn define_struct(
         &mut self,
-        ast_struct_name: &ast::Spanned<ast::Name>,
-        type_params: &Vec<ast::Span>,
-        members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Type>)>,
+        ast_struct_name: &'ast ast::Spanned<ast::Name>,
+        type_params: &'ast Vec<ast::Span>,
+        members: &'ast ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Type>)>,
     ) -> Result<(), ModGenError> {
         self.current_generics.clear();
         self.current_generics
@@ -235,7 +245,7 @@ impl<'mg> ModGen<'mg> {
             }
         }
 
-        let sym = self.module.ty_ctx.root.resolve_mut(&struct_name).unwrap();
+        let sym = self.module.root.resolve_mut(&struct_name).unwrap();
         if let sym::Symbol::Struct { members, .. } = &mut sym.symbol {
             *members = sym_members;
         } else {
@@ -260,24 +270,24 @@ impl<'mg> ModGen<'mg> {
 
     fn gen_fun_ir(
         &mut self,
-        name: sym::Name,
-        body: &ast::SpanBox<ast::FunBlock>,
+        name: sym::Name<'ty>,
+        body: &'ast ast::SpanBox<ast::FunBlock>,
     ) -> Result<(), ModGenError> {
-        let fun_type = &self.module.ty_ctx.root.resolve(&name).unwrap().symbol;
         let (params, return_type, generics) = if let sym::Symbol::Fun {
             params,
             return_type,
             types,
-        } = fun_type
+        } =
+            &self.module.root.resolve(&name).unwrap().symbol
         {
-            (params, return_type, types)
+            (params.clone(), *return_type, types.clone())
         } else {
             unreachable!()
         };
 
         let body = ir_gen::gen_fun_block(
-            self.module,
-            self.err,
+            &self.module,
+            &mut self.err,
             &name,
             params,
             return_type,
@@ -291,47 +301,49 @@ impl<'mg> ModGen<'mg> {
     }
 
     fn check_generics(&self, name: &sym::Name) -> bool {
-        match name {
-            sym::Name::Ident(_, params) => params.iter().all(|t| self.type_exists(t)),
-            sym::Name::Namespace(_, params, next) => {
-                params.iter().all(|t| self.type_exists(t)) && self.check_generics(next.as_ref())
-            }
-        }
+        todo!()
+        // match name {
+        //     sym::Name::Ident(_, params) => params.iter().all(|t| self.type_exists(t)),
+        //     sym::Name::Namespace(_, params, next) => {
+        //         params.iter().all(|t| self.type_exists(t)) && self.check_generics(next.as_ref())
+        //     }
+        // }
     }
 
     fn type_exists(&self, ty: &ty::Type) -> bool {
-        match ty {
-            ty::Type::Named(name) => {
-                self.check_generics(name)
-                    && match name {
-                        sym::Name::Ident(id, params)
-                            if params.is_empty() && self.current_generics.contains(id) =>
-                        {
-                            true
-                        }
-                        name => match self.module.ty_ctx.root.resolve(&name) {
-                            Some(sym::SymbolInfo {
-                                symbol: sym::Symbol::Struct { .. },
-                                ..
-                            })
-                            | Some(sym::SymbolInfo {
-                                symbol: sym::Symbol::Fun { .. },
-                                ..
-                            }) => true,
-                            _ => false,
-                        },
-                    }
-            }
-            ty::Type::Tuple(tys) => tys.iter().all(|ty| self.type_exists(ty)),
-            ty::Type::Fun(params, ret) => {
-                params.iter().all(|ty| self.type_exists(ty)) && self.type_exists(ret.as_ref())
-            }
-            ty::Type::Pointer(_, ty)
-            | ty::Type::SizedArray(_, ty)
-            | ty::Type::UnsizedArray(ty)
-            | ty::Type::Range(ty)
-            | ty::Type::Lhs(ty) => self.type_exists(ty.as_ref()),
-            ty::Type::Primitive(_) | ty::Type::Err | ty::Type::Unknown => true,
-        }
+        todo!()
+        // match ty {
+        //     ty::Type::Named(name) => {
+        //         self.check_generics(name)
+        //             && match name {
+        //                 sym::Name::Ident(id, params)
+        //                     if params.is_empty() && self.current_generics.contains(id) =>
+        //                 {
+        //                     true
+        //                 }
+        //                 name => match self.module.ty_ctx.root.resolve(&name) {
+        //                     Some(sym::SymbolInfo {
+        //                         symbol: sym::Symbol::Struct { .. },
+        //                         ..
+        //                     })
+        //                     | Some(sym::SymbolInfo {
+        //                         symbol: sym::Symbol::Fun { .. },
+        //                         ..
+        //                     }) => true,
+        //                     _ => false,
+        //                 },
+        //             }
+        //     }
+        //     ty::Type::Tuple(tys) => tys.iter().all(|ty| self.type_exists(ty)),
+        //     ty::Type::Fun(params, ret) => {
+        //         params.iter().all(|ty| self.type_exists(ty)) && self.type_exists(ret.as_ref())
+        //     }
+        //     ty::Type::Pointer(_, ty)
+        //     | ty::Type::SizedArray(_, ty)
+        //     | ty::Type::UnsizedArray(ty)
+        //     | ty::Type::Range(ty)
+        //     | ty::Type::Lhs(ty) => self.type_exists(ty.as_ref()),
+        //     ty::Type::Primitive(_) | ty::Type::Err | ty::Type::Unknown => true,
+        // }
     }
 }

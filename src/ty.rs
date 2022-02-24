@@ -1,8 +1,33 @@
 use crate::ast;
+use crate::intern::Int;
 use crate::symbol::Name;
-use std::collections::HashMap;
+use crate::symbol::TyCtx;
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub fn range_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+    ctx.int(Type::Range(ctx.int(Type::Primitive(PrimitiveType::USize))))
+}
+
+pub fn primitive_ty<'a>(ctx: TyCtx<'a>, pt: PrimitiveType) -> Ty<'a> {
+    ctx.int(Type::Primitive(pt))
+}
+
+pub fn void_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+    primitive_ty(ctx, PrimitiveType::Void)
+}
+
+pub fn bool_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+    primitive_ty(ctx, PrimitiveType::Bool)
+}
+
+pub fn err_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+    ctx.int(Type::Err)
+}
+
+pub fn ukn_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+    ctx.int(Type::Unknown)
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
 pub enum PrimitiveType {
     Void,
     Bool,
@@ -86,7 +111,7 @@ impl From<&ast::PrimitiveType> for PrimitiveType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum PointerType {
     StarMut,
     Star,
@@ -101,38 +126,55 @@ impl From<&ast::PointerType> for PointerType {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub struct TyId {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
+pub struct Ty<'ty>(pub Int<'ty, Type<'ty>>);
+
 /// Semantic type values
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type {
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum Type<'ty> {
     Primitive(PrimitiveType),
     Param(String),
-    Pointer(PointerType, Box<Type>),
-    Tuple(Vec<Type>),
-    Fun(Vec<Type>, Box<Type>),
-    SizedArray(usize, Box<Type>),
-    UnsizedArray(Box<Type>),
-    Range(Box<Type>),
-    Lhs(Box<Type>),
-    Struct {
-        name: Name,
-        params: Vec<Type>,
-        members: HashMap<String, Type>,
-    },
+    Pointer(PointerType, Ty<'ty>),
+    Tuple(Vec<Ty<'ty>>),
+    Fun(Vec<Ty<'ty>>, Ty<'ty>),
+    SizedArray(usize, Ty<'ty>),
+    UnsizedArray(Ty<'ty>),
+    Range(Ty<'ty>),
+    Lhs(Ty<'ty>),
+    Struct(StructType<'ty>),
     Err,
     Unknown,
 }
 
-impl Type {
-    pub fn ptr(&self) -> Type {
-        Type::Pointer(PointerType::Star, Box::new(self.clone()))
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub struct StructType<'ty> {
+    pub name: Name<'ty>,
+    pub params: Vec<String>,
+    pub members: Vec<(String, Ty<'ty>)>,
+}
+
+impl<'ty> Ty<'ty> {
+    /// Make a unsized slice of this type
+    pub fn slice_ty(self, ctx: TyCtx<'ty>) -> Ty<'ty> {
+        ctx.int(Type::UnsizedArray(self))
     }
 
-    pub fn mut_ptr(&self) -> Type {
-        Type::Pointer(PointerType::StarMut, Box::new(self.clone()))
+    /// Make a pointer to this type
+    pub fn ptr(self, ctx: TyCtx<'ty>) -> Ty<'ty> {
+        ctx.int(Type::Pointer(PointerType::Star, self))
     }
 
-    pub fn is_numeric(&self) -> bool {
-        match self {
+    /// Make a mutable pointer to this type
+    pub fn mut_ptr(self, ctx: TyCtx<'ty>) -> Ty<'ty> {
+        ctx.int(Type::Pointer(PointerType::StarMut, self))
+    }
+
+    /// True if this type is an integer or floating point type
+    pub fn is_numeric(self) -> bool {
+        match self.0 .0 {
             Type::Primitive(x) => x.is_numeric(),
             _ => false,
         }

@@ -1,23 +1,52 @@
 use crate::ast;
 use crate::const_eval::ConstEvaluator;
+use crate::intern::Arena;
 use crate::ir_display::type_array_str;
-use crate::ty::Type;
+use crate::ty::{self, Ty};
 use std::collections::HashMap;
 
+pub struct TyCtxContainer<'ty> {
+    ctx: TyCtxS<'ty>,
+}
+
+impl<'ty> TyCtxContainer<'ty> {
+    pub fn new() -> TyCtxContainer<'ty> {
+        Self {
+            ctx: TyCtxS {
+                arena: Arena::new(),
+            },
+        }
+    }
+
+    pub fn ctx(&'ty self) -> TyCtx<'ty> {
+        TyCtx(&self.ctx)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TyCtx<'ty>(&'ty TyCtxS<'ty>);
+
 #[derive(Debug)]
-pub struct TyCtx {
-    pub root: Symbol,
+pub struct TyCtxS<'ty> {
+    pub arena: Arena<ty::Type<'ty>>,
+}
+
+impl<'ty> TyCtx<'ty> {
+    /// Intern a type and get its Ty
+    pub fn int(self, ty: ty::Type<'ty>) -> Ty<'ty> {
+        ty::Ty(self.0.arena.int(ty))
+    }
 }
 
 /// Represents a name (foo::bar) contained in a namespace.
 /// This is agnostic to the scope of the name
-#[derive(Debug, Clone, PartialEq)]
-pub enum Name {
-    Ident(String, Vec<Type>),
-    Namespace(String, Vec<Type>, Box<Name>),
+#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+pub enum Name<'ty> {
+    Ident(String, Vec<Ty<'ty>>),
+    Namespace(String, Vec<Ty<'ty>>, Box<Name<'ty>>),
 }
 
-impl std::fmt::Display for Name {
+impl std::fmt::Display for Name<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Name::Ident(string, types) if types.is_empty() => write!(f, "{}", string),
@@ -32,9 +61,9 @@ impl std::fmt::Display for Name {
     }
 }
 
-impl Name {
+impl<'ty> Name<'ty> {
     /// Return new Name `<self>::<end>`
-    pub fn with_end(&self, end: Name) -> Name {
+    pub fn with_end(&self, end: Name<'ty>) -> Name<'ty> {
         match self {
             Name::Ident(name, types) => Name::Namespace(name.clone(), types.clone(), Box::new(end)),
             Name::Namespace(id, types, child) => {
@@ -47,7 +76,7 @@ impl Name {
         matches!(self, Name::Ident(_, _))
     }
 
-    pub fn pop_end(&self) -> Option<Name> {
+    pub fn pop_end(&self) -> Option<Name<'ty>> {
         match self {
             Name::Ident(_, _) => None,
             Name::Namespace(id, types, child) if child.is_ident() => {
@@ -72,12 +101,12 @@ pub enum SymbolVisibility {
 /// Use instead of using `Symbol` directly because this contains information on
 /// the visibility of a symbol.
 #[derive(Debug)]
-pub struct SymbolInfo {
+pub struct SymbolInfo<'ty> {
     pub visibility: SymbolVisibility,
-    pub symbol: Symbol,
+    pub symbol: Symbol<'ty>,
 }
 
-impl SymbolInfo {
+impl SymbolInfo<'_> {
     pub fn new(visibility: SymbolVisibility, symbol: Symbol) -> SymbolInfo {
         SymbolInfo { visibility, symbol }
     }
@@ -85,19 +114,19 @@ impl SymbolInfo {
 
 /// A symbol which could be a module, struct or function.
 #[derive(Debug)]
-pub enum Symbol {
+pub enum Symbol<'ty> {
     Mod {
-        symbols: HashMap<String, SymbolInfo>,
+        symbols: HashMap<String, SymbolInfo<'ty>>,
     },
     Struct {
         types: Vec<String>,
-        members: HashMap<String, Type>,
-        symbols: HashMap<String, SymbolInfo>,
+        members: HashMap<String, Ty<'ty>>,
+        symbols: HashMap<String, SymbolInfo<'ty>>,
     },
     Fun {
         types: Vec<String>,
-        params: Vec<(String, Type)>,
-        return_type: Box<Type>,
+        params: Vec<(String, Ty<'ty>)>,
+        return_type: Ty<'ty>,
     },
 }
 
@@ -107,14 +136,24 @@ pub enum SymbolDeclError {
     InvalidName,
 }
 
-impl Symbol {
+#[derive(Debug)]
+pub enum SymbolResolveErr {
+    /// The symbol doesn't exist
+    NoSuchSymbol,
+    /// Type params were put on module
+    TypeParamsOnMod,
+    /// Missing type params
+    MissingTypeParams,
+}
+
+impl<'ty> Symbol<'ty> {
     /// Declare (create a new) symbol with the given name where the given name
     /// is a path relative to the current symbol.
     ///
     /// For example, if the `declare` function is called on a module `foo` and the
     /// given name is `bar::fizz`, a the new symbol is added to the module `foo`
     /// and would have a global name of `foo::bar::fizz`
-    pub fn declare(&mut self, name: &Name, symbol: SymbolInfo) -> Result<(), SymbolDeclError> {
+    pub fn declare(&mut self, name: &Name, symbol: SymbolInfo<'ty>) -> Result<(), SymbolDeclError> {
         match (name, self) {
             (Name::Ident(id, _), Symbol::Mod { symbols })
             | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => {
@@ -136,22 +175,64 @@ impl Symbol {
         }
     }
 
-    /// Get a reference to the symbol at the given name (relative to self)
-    pub fn resolve(&self, name: &Name) -> Option<&SymbolInfo> {
-        match (name, self) {
-            (Name::Ident(id, _), Symbol::Mod { symbols })
-            | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => symbols.get(id),
+    /// Gets the type of a given named type.
+    /// For example, given the following code:
+    /// ```ignore
+    /// struct<T> Node {
+    ///     data: T,
+    ///     next: *Node::<T>,
+    /// }
+    /// ```
+    ///
+    /// calling `resolve_ty("Node::<i32>")` should return a type in the format
+    /// ```ignore
+    /// ty::Struct {
+    ///     name: "Node",
+    ///     params: [ty::I32],
+    ///     members: [
+    ///         "data": ty::Param("T"),
+    ///         "next": // oh shit forgot about inf
+    ///     ]
+    /// }
+    /// ```
+    pub fn resolve_ty(
+        &self,
+        name: &Name<'ty>,
+        ctx: TyCtx<'ty>,
+    ) -> Result<Ty<'ty>, SymbolResolveErr> {
+        todo!()
+    }
 
+    /// Get a reference to the symbol at the given name (relative to self)
+    pub fn resolve(&self, name: &Name<'ty>) -> Result<&SymbolInfo<'ty>, SymbolResolveErr> {
+        use SymbolResolveErr::*;
+        match (name, self) {
+            (Name::Ident(id, types), Symbol::Mod { symbols }) if types.is_empty() => {
+                symbols.get(id).ok_or(NoSuchSymbol)
+            }
+
+            (Name::Ident(id, _), Symbol::Mod { symbols }) => Err(TypeParamsOnMod),
+
+            // If ident on struct type, we are getting member function
+            (Name::Ident(id, name_types), Symbol::Struct { types, symbols, .. }) => {
+                if name_types.len() != types.len() {
+                    Err(MissingTypeParams)
+                } else {
+                    symbols.get(id).ok_or(NoSuchSymbol)
+                }
+            }
+
+            // Here we are getting a member of a child
             (Name::Namespace(id, _, name), Symbol::Mod { symbols })
             | (Name::Namespace(id, _, name), Symbol::Struct { symbols, .. }) => {
-                symbols.get(id)?.symbol.resolve(name)
+                symbols.get(id).ok_or(NoSuchSymbol)?.symbol.resolve(name)
             }
-            _ => None,
+            _ => Err(NoSuchSymbol),
         }
     }
 
     /// Get a mutable reference to the symbol at the given name (relative to self)
-    pub fn resolve_mut(&mut self, name: &Name) -> Option<&mut SymbolInfo> {
+    pub fn resolve_mut(&mut self, name: &Name<'ty>) -> Option<&mut SymbolInfo<'ty>> {
         match (name, self) {
             (Name::Ident(id, _), Symbol::Mod { symbols })
             | (Name::Ident(id, _), Symbol::Struct { symbols, .. }) => symbols.get_mut(id),
