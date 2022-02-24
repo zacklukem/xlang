@@ -615,7 +615,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 .err(format!("Name `{}` not found in scope", span.str()), span);
         }
         let ty = ty.unwrap_or_else(|| ty::err_ty(self.module.ty_ctx()));
-        let expr = ir::ExprKind::Ident(name, Vec::new());
+        let expr = ir::ExprKind::Ident(name, generics);
         let expr = ir::Expr::new(expr, span.clone(), ty);
         Ok(expr)
     }
@@ -915,10 +915,12 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                                     .map(|(_, t)| self.replace_generics(*t, &typ_iter))
                                     .collect();
 
+                                let return_type = self.replace_generics(*return_type, &typ_iter);
+
                                 let ty = self
                                     .module
                                     .ty_ctx()
-                                    .int(ty::TyKind::Fun(params, *return_type));
+                                    .int(ty::TyKind::Fun(params, return_type));
 
                                 let pass_ty_ref = lhs.ty().ptr(self.module.ty_ctx());
 
@@ -927,7 +929,9 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                                 let pass_expr = ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
 
                                 // Struct::method
-                                let expr = ir::ExprKind::DefIdent(*def_id, Vec::new());
+                                let path = self.module.get_path_by_def_id(*def_id);
+                                let expr =
+                                    ir::ExprKind::Ident(path.clone(), instance_ty_params.clone());
                                 let expr =
                                     ir::Expr::new_pass(expr, span.clone(), ty, Box::new(pass_expr));
                                 return Ok(expr);

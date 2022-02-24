@@ -280,15 +280,6 @@ impl Display for ExprKind<'_> {
                 }
                 Ok(())
             }
-            ExprKind::DefIdent(val, generics) => {
-                write!(f, "{:?}", val)?;
-                if !generics.is_empty() {
-                    f.write_str("<")?;
-                    write_type_array(f, generics)?;
-                    f.write_str(">")?;
-                }
-                Ok(())
-            }
             ExprKind::Integer(val) => val.fmt(f),
             ExprKind::Float(val) => val.fmt(f),
             ExprKind::String(string) => f.write_str(&string),

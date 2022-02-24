@@ -114,6 +114,7 @@ pub struct Module<'ty> {
     next_id: u32,
     defs: HashMap<DefId, Def<'ty>>,
     def_paths: HashMap<Path, DefId>,
+    path_defs: HashMap<DefId, Path>,
     pub functions: Vec<Fun<'ty>>,
     pub ty_ctx: TyCtx<'ty>,
     pub const_eval: ConstEvaluator,
@@ -126,6 +127,7 @@ impl<'ty> Module<'ty> {
             next_id: 0,
             defs: Default::default(),
             def_paths: Default::default(),
+            path_defs: Default::default(),
             ty_ctx,
             functions: Default::default(),
             const_eval: ConstEvaluator {},
@@ -136,6 +138,11 @@ impl<'ty> Module<'ty> {
         let id = self.next_id;
         self.next_id += 1;
         DefId { id }
+    }
+
+    fn insert_def_path(&mut self, id: DefId, path: Path) {
+        self.def_paths.insert(path.clone(), id);
+        self.path_defs.insert(id, path);
     }
 
     pub fn declare_with(
@@ -163,7 +170,7 @@ impl<'ty> Module<'ty> {
                 }
                 None => (),
             }
-            self.def_paths.insert(path, id);
+            self.insert_def_path(id, path);
             Ok(id)
         }
     }
@@ -191,6 +198,10 @@ impl<'ty> Module<'ty> {
 
     pub fn get_mut_def_by_path(&mut self, path: &Path) -> Option<&mut Def<'ty>> {
         Some(self.get_mut_def_by_id(*self.def_paths.get(path)?))
+    }
+
+    pub fn get_path_by_def_id(&self, id: DefId) -> &Path {
+        self.path_defs.get(&id).unwrap()
     }
 
     /// Get the module ty context
@@ -431,7 +442,6 @@ impl From<&ast::UnaryOp> for UnaryOp {
 #[derive(Debug)]
 pub enum ExprKind<'ty> {
     Ident(Path, Vec<Ty<'ty>>),
-    DefIdent(DefId, Vec<Ty<'ty>>),
     Integer(IntegerSpecifier),
     Float(FloatSpecifier),
     String(String),

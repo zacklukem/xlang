@@ -1,6 +1,15 @@
 fun free(ptr: *void) {}
 fun panic(msg: *[]u8) {}
 fun alloc(size: usize) -> *void {}
+fun assert(expr: bool) {}
+
+fun main() {
+    let list = List::new::<i64>();
+    assert(list.len() == 0);
+    list.push_back(3);
+    assert(list.len() == 1);
+    assert(list.pop_back() == 3);
+}
 
 struct<T> Word {
     head: *Node::<T>,
@@ -13,6 +22,10 @@ struct<T> List {
 struct<T> Node {
     data: T,
     next: *Node::<T>,
+}
+
+fun<T> List::<T>::new() -> List::<T> {
+    return List::<T> of { head: null, };
 }
 
 fun<T> List::<T>::len(*self) -> usize {
