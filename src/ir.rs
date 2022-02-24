@@ -115,7 +115,7 @@ pub struct Module<'ty> {
     defs: HashMap<DefId, Def<'ty>>,
     def_paths: HashMap<Path, DefId>,
     path_defs: HashMap<DefId, Path>,
-    pub functions: Vec<Fun<'ty>>,
+    pub functions: HashMap<DefId, Fun<'ty>>,
     pub ty_ctx: TyCtx<'ty>,
     pub const_eval: ConstEvaluator,
 }
@@ -132,6 +132,10 @@ impl<'ty> Module<'ty> {
             functions: Default::default(),
             const_eval: ConstEvaluator {},
         }
+    }
+
+    pub fn defs_iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, DefId, Def<'ty>> {
+        self.defs.iter()
     }
 
     pub fn get_def_id(&mut self) -> DefId {

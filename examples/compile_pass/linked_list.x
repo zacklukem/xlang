@@ -9,6 +9,12 @@ fun main() {
     list.push_back(3);
     assert(list.len() == 1);
     assert(list.pop_back() == 3);
+
+    let list = List::new::<i32>();
+    assert(list.len() == 0);
+    list.push_back(3);
+    assert(list.len() == 1);
+    assert(list.pop_back() == 3);
 }
 
 struct<T> Word {
@@ -29,11 +35,11 @@ fun<T> List::<T>::new() -> List::<T> {
 }
 
 fun<T> List::<T>::len(*self) -> usize {
-    let a = List::len::<T>;
+    let k = Node::len::<T>;
     if self.head == null {
         return 0;
     } else {
-        return self.head.len();
+        return k(self.head);
     }
 }
 

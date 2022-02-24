@@ -384,18 +384,20 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             unreachable!()
         };
 
+        let def_id = self.module.get_def_id_by_path(&path).unwrap();
+
         let body = ir_gen::gen_fun_block(
             &self.module,
             format!("{}", path),
             &mut self.err,
-            self.module.get_def_id_by_path(&path).unwrap(),
+            def_id,
             params,
             return_type,
             body,
             generics,
         )?;
 
-        self.module.functions.push(body);
+        self.module.functions.insert(def_id, body);
 
         Ok(())
     }

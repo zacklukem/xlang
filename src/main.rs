@@ -4,11 +4,13 @@ extern crate lalrpop_util;
 pub mod ast;
 pub mod const_eval;
 pub mod error_context;
+pub mod generics;
 pub mod intern;
 pub mod ir;
 pub mod ir_display;
 pub mod ir_gen;
 pub mod mod_gen;
+pub mod monomorphize;
 pub mod ty;
 pub mod ty_mangle;
 
@@ -56,12 +58,19 @@ fn main() {
 
     let err = error_context::ErrorContext::new();
 
+    // Gen module
     let mut mod_gen = mod_gen::ModGen::new(module, err, &ast_module);
     mod_gen.run().unwrap();
     let (module, err) = mod_gen.finish();
     print_pass_errors_and_exit(&err);
 
-    println!("{:?}", module.ty_ctx);
+    // Monomorphize
+    let mut mono = monomorphize::Monomorphize::new(&module);
+    mono.run();
 
-    println!("{:#?}", module.functions);
+    // println!("{:#?}", module.functions);
+
+    mono.print_instances();
+
+    // println!("{:?}", module.ty_ctx);
 }

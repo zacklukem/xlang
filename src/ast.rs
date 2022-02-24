@@ -60,7 +60,6 @@ impl Source {
             .find(|(_, idx)| **idx > pos)
             .unwrap_or((1, &0));
         let idx = self.line_starts[line - 1];
-        println!("{} {}", idx, pos);
         (line, (pos - idx) + 1)
     }
 }
