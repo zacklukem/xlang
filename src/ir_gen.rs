@@ -1,3 +1,5 @@
+//! Handles generation of the IR
+
 use crate::ast;
 use crate::error_context::ErrorContext;
 use crate::intern::Int;

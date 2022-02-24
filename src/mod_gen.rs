@@ -1,3 +1,5 @@
+//! Generates modules
+
 use crate::ast::{self, TopStmt};
 use crate::error_context::ErrorContext;
 use crate::ir;

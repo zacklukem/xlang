@@ -1,3 +1,8 @@
+//! Abstract syntax tree representation for xlang
+//!
+//! Contains a faithful representation of the source code with `Span`s to mark
+//! the source code locations to ast values
+
 use std::rc::Rc;
 
 pub struct Source {

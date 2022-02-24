@@ -1,4 +1,7 @@
 //! Interning arena
+//!
+//! Stores a type in the heap and ensures that the value is only stored once in
+//! memory
 
 use std::cell::RefCell;
 use std::collections::HashSet;

@@ -1,3 +1,5 @@
+//! Data structures relating to types
+
 use crate::ast;
 use crate::intern::Arena;
 use crate::intern::Int;

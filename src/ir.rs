@@ -1,3 +1,5 @@
+//! The IR data structures
+
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
 use crate::ty::{Ty, TyCtx};

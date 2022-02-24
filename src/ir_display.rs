@@ -1,3 +1,5 @@
+//! Handles pretty-printing the IR
+
 use crate::ir::*;
 use crate::ty::{PointerType, StructType, Ty, TyKind};
 use std::fmt::{Display, Write};

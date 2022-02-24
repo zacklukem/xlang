@@ -1,3 +1,5 @@
+//! Handles printing and storing errors emitted by the compiler
+
 use crate::ast;
 
 pub struct ErrorContext {}
