@@ -14,6 +14,13 @@ pub mod ty_mangle;
 
 lalrpop_mod!(pub parser);
 
+fn print_pass_errors_and_exit(err: &error_context::ErrorContext) {
+    if err.has_errors() {
+        err.print_all();
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let mut args = std::env::args();
 
@@ -33,12 +40,12 @@ fn main() {
         }) => {
             let expected = expected.join(" | ");
             let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
-            source.print_msg((start, end), &msg);
-            panic!()
+            source.print_msg((start, end), &msg, "Error");
+            std::process::exit(1)
         }
         Err(e) => {
             println!("{:#?}", e);
-            panic!()
+            std::process::exit(1)
         }
         Ok(ast_module) => ast_module,
     };
@@ -47,11 +54,12 @@ fn main() {
 
     let module = ir::Module::new(tyc.ctx());
 
-    let err = error_context::ErrorContext {};
+    let err = error_context::ErrorContext::new();
 
     let mut mod_gen = mod_gen::ModGen::new(module, err, &ast_module);
     mod_gen.run().unwrap();
-    let (module, _err) = mod_gen.finish();
+    let (module, err) = mod_gen.finish();
+    print_pass_errors_and_exit(&err);
 
     println!("{:?}", module.ty_ctx);
 

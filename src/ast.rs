@@ -30,14 +30,18 @@ impl Source {
         }
     }
 
-    pub fn print_msg(&self, (start, end): (usize, usize), msg: &str) {
+    pub fn print_msg(&self, (start, end): (usize, usize), msg: &str, kind: &str) {
         let (line_num, col) = self.line_col(start);
         let line_start = self.line_starts[line_num - 1];
-        let line_end = self.line_starts[line_num];
+        let line_end = self
+            .line_starts
+            .get(line_num)
+            .map(|v| *v)
+            .unwrap_or(self.source_string.len());
         let line = &self.source_string[line_start..line_end];
         let line = line.trim_end();
-        println!("     --> Error: {}:{}", line_num + 1, col);
-        print!("      | \n{:>5} | {}\n      | ", line_num + 1, line);
+        println!("     --> {}: {}:{}", kind, line_num, col);
+        print!("      | \n{:>5} | {}\n      | ", line_num, line);
         println!(
             "{:left$}{:^>width$} {}\n      |",
             "",
@@ -54,8 +58,9 @@ impl Source {
             .iter()
             .enumerate()
             .find(|(_, idx)| **idx > pos)
-            .unwrap();
+            .unwrap_or((1, &0));
         let idx = self.line_starts[line - 1];
+        println!("{} {}", idx, pos);
         (line, (pos - idx) + 1)
     }
 }
@@ -76,8 +81,8 @@ impl Span {
         }
     }
 
-    pub fn print_msg(&self, msg: &str) {
-        self.source.print_msg(self.as_tuple(), msg)
+    pub fn print_msg(&self, msg: &str, kind: &str) {
+        self.source.print_msg(self.as_tuple(), msg, kind)
     }
 
     pub fn as_tuple(&self) -> (usize, usize) {

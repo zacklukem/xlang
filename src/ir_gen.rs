@@ -262,7 +262,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                     false,
                 ))
             }
-            _ => todo!("error{}", name),
+            _ => None,
         }
     }
 

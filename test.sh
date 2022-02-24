@@ -15,8 +15,16 @@ do
     printf "test $file ... "
     target/debug/xlang $file > $TMPFILE 2>&1
 
-    if [ $? -eq 0 ]; then
+    ERR=$?
+
+    if [ $ERR -eq 0 ]; then
         echo -e "\033[32mok\033[0m"
+    elif [ $ERR -eq 101 ]; then
+        FAILED=1
+        echo -e "\033[31mPANIC\033[0m"
+        echo "Failure:"
+        cat $TMPFILE | sed -e 's/^/    /g'
+        echo
     else
         FAILED=1
         echo -e "\033[31mFAIL\033[0m"
@@ -31,8 +39,16 @@ do
     printf "test $file ... "
     target/debug/xlang $file > $TMPFILE 2>&1
 
-    if [ $? -ne 0 ]; then
+    ERR=$?
+
+    if [ $ERR -eq 1 ]; then # Compile fail is always 1
         echo -e "\033[32mok\033[0m"
+    elif [ $ERR -eq 101 ]; then
+        FAILED=1
+        echo -e "\033[31mPANIC\033[0m"
+        echo "Failure:"
+        cat $TMPFILE | sed -e 's/^/    /g'
+        echo
     else
         FAILED=1
         echo -e "\033[31mFAIL\033[0m"
