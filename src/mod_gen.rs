@@ -38,7 +38,7 @@ pub trait TypeGenerator<'ast, 'ty> {
                             .ty_ctx()
                             .int(ty::TyKind::Struct(ty::StructType {
                                 def_id,
-                                db_name: format!("{}", path),
+                                path,
                                 ty_params,
                             }))
                     }
@@ -226,7 +226,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                         .ty_ctx()
                         .int(ty::TyKind::Struct(ty::StructType {
                             def_id,
-                            db_name: format!("{}", struct_name),
+                            path: struct_name.clone(),
                             ty_params: struct_generics,
                         }))
                         .ptr(self.module.ty_ctx()),

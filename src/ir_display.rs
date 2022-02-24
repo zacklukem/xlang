@@ -41,9 +41,9 @@ impl Display for TyKind<'_> {
             TyKind::Param(p) => f.write_str(&p),
             TyKind::Primitive(pt) => write!(f, "{:?}", pt),
             TyKind::Struct(StructType {
-                db_name, ty_params, ..
+                path, ty_params, ..
             }) => {
-                write!(f, "{}", db_name)?;
+                write!(f, "{}", path)?;
                 if !ty_params.is_empty() {
                     f.write_str("<")?;
                     write_type_array(f, ty_params)?;

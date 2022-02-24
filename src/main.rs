@@ -52,5 +52,7 @@ fn main() {
     mod_gen.run().unwrap();
     let (module, _err) = mod_gen.finish();
 
+    println!("{:?}", module.ty_ctx);
+
     println!("{:#?}", module.functions);
 }

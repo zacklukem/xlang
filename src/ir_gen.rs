@@ -203,7 +203,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             }
             Struct(StructType {
                 def_id,
-                db_name,
+                path,
                 ty_params,
             }) => {
                 let ty_params: Vec<ty::Ty<'ty>> = ty_params
@@ -212,7 +212,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                     .collect();
                 self.module.ty_ctx().int(Struct(StructType {
                     def_id: *def_id,
-                    db_name: db_name.clone(),
+                    path: path.clone(),
                     ty_params,
                 }))
             }
@@ -1285,7 +1285,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 } else {
                     self.module.ty_ctx().int(ty::TyKind::Struct(ty::StructType {
                         def_id,
-                        db_name: format!("{}", type_name),
+                        path: type_name,
                         ty_params: type_generics,
                     }))
                 }

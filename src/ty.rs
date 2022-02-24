@@ -3,7 +3,7 @@
 use crate::ast;
 use crate::intern::Arena;
 use crate::intern::Int;
-use crate::ir::DefId;
+use crate::ir::{DefId, Path};
 
 pub struct TyCtxContainer<'ty> {
     ctx: TyCtxS<'ty>,
@@ -186,7 +186,7 @@ pub enum TyKind<'ty> {
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct StructType<'ty> {
     pub def_id: DefId,
-    pub db_name: String,
+    pub path: Path,
     pub ty_params: Vec<Ty<'ty>>,
 }
 

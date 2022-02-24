@@ -56,7 +56,7 @@ pub enum DefKind<'ty> {
     },
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Path {
     Terminal(String),
     Namespace(String, Box<Path>),

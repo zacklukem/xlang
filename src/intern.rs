@@ -1,5 +1,7 @@
 //! Interning arena
 //!
+//! Where the interns go to fight for their lives
+//!
 //! Stores a type in the heap and ensures that the value is only stored once in
 //! memory
 
