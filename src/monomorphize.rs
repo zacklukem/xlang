@@ -6,8 +6,8 @@ use std::iter::Iterator;
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 pub struct DefInstance<'ty> {
-    def_id: DefId,
-    ty_params: Vec<Ty<'ty>>,
+    pub def_id: DefId,
+    pub ty_params: Vec<Ty<'ty>>,
 }
 
 impl<'ty> DefInstance<'ty> {
@@ -20,7 +20,7 @@ impl<'ty> DefInstance<'ty> {
 pub struct Monomorphize<'ty> {
     module: &'ty Module<'ty>,
     monos: HashSet<DefInstance<'ty>>,
-    // Hash set containing all instances of types
+    special_types: HashSet<Ty<'ty>>,
 }
 
 impl<'ty> Monomorphize<'ty> {
@@ -28,7 +28,12 @@ impl<'ty> Monomorphize<'ty> {
         Monomorphize {
             module,
             monos: HashSet::new(),
+            special_types: HashSet::new(),
         }
+    }
+
+    pub fn finish(self) -> (HashSet<DefInstance<'ty>>, HashSet<Ty<'ty>>) {
+        (self.monos, self.special_types)
     }
 
     pub fn run(&mut self) {
@@ -38,9 +43,15 @@ impl<'ty> Monomorphize<'ty> {
                     ty_params,
                     params,
                     return_type,
-                } if ty_params.is_empty() => {
-                    self.fun_def(*def_id, ty_params, &Vec::new(), params, return_type)
-                }
+                    external,
+                } if ty_params.is_empty() => self.fun_def(
+                    *external,
+                    *def_id,
+                    ty_params,
+                    &Vec::new(),
+                    params,
+                    return_type,
+                ),
                 DefKind::Struct {
                     ty_params,
                     members,
@@ -59,7 +70,15 @@ impl<'ty> Monomorphize<'ty> {
                 ty_params,
                 params,
                 return_type,
-            } => self.fun_def(def_id, ty_params, ty_params_types, params, return_type),
+                external,
+            } => self.fun_def(
+                *external,
+                def_id,
+                ty_params,
+                ty_params_types,
+                params,
+                return_type,
+            ),
             DefKind::Struct {
                 ty_params,
                 members,
@@ -85,6 +104,7 @@ impl<'ty> Monomorphize<'ty> {
             | Range(inner)
             | Lhs(inner) => self.mono_ty(*inner),
             Tuple(tys) => {
+                self.special_types.insert(ty);
                 for ty in tys {
                     self.mono_ty(*ty);
                 }
@@ -126,6 +146,7 @@ impl<'ty> Monomorphize<'ty> {
 
     pub fn fun_def(
         &mut self,
+        external: bool,
         def_id: DefId,
         ty_params_names: &Vec<String>,
         ty_params_types: &Vec<Ty<'ty>>,
@@ -151,8 +172,9 @@ impl<'ty> Monomorphize<'ty> {
             for param in params_iter {
                 self.mono_ty(param);
             }
-
-            self.fun_body(def_id, &ty_params);
+            if !external {
+                self.fun_body(def_id, &ty_params);
+            }
         }
     }
 

@@ -2,6 +2,7 @@
 extern crate lalrpop_util;
 
 pub mod ast;
+pub mod codegen;
 pub mod const_eval;
 pub mod error_context;
 pub mod generics;
@@ -28,6 +29,7 @@ fn main() {
 
     args.next();
     let first_arg = args.next().unwrap();
+    let second_arg = args.next().unwrap();
 
     let source_string = std::fs::read_to_string(first_arg).unwrap();
 
@@ -68,9 +70,23 @@ fn main() {
     let mut mono = monomorphize::Monomorphize::new(&module);
     mono.run();
 
+    let (monos, special_types) = mono.finish();
+
     // println!("{:#?}", module.functions);
 
-    mono.print_instances();
+    // mono.print_instances();
+
+    let header_filename = second_arg.clone() + ".h";
+    let source_filename = second_arg.clone() + ".c";
+
+    let header = std::fs::File::create(header_filename).unwrap();
+    let source = std::fs::File::create(source_filename).unwrap();
+    let mut header = std::io::BufWriter::new(header);
+    let mut source = std::io::BufWriter::new(source);
+
+    let mut codegen =
+        codegen::CodeGen::new(&module, &monos, &special_types, &mut header, &mut source);
+    codegen.gen(&second_arg).unwrap();
 
     // println!("{:?}", module.ty_ctx);
 }

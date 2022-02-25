@@ -195,6 +195,14 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     members,
                     ..
                 } => self.define_struct(name, type_params, members)?,
+                TopStmt::FunDecl {
+                    pub_tok,
+                    type_params,
+                    name,
+                    params,
+                    return_type,
+                    ..
+                } => self.define_fun_type(true, pub_tok, type_params, name, params, return_type)?,
                 TopStmt::Fun {
                     pub_tok,
                     type_params,
@@ -202,7 +210,10 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     params,
                     return_type,
                     ..
-                } => self.define_fun_type(pub_tok, type_params, name, params, return_type)?,
+                } => {
+                    self.define_fun_type(false, pub_tok, type_params, name, params, return_type)?
+                }
+                _ => todo!(),
             }
         }
         Ok(())
@@ -245,6 +256,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
     /// Define a function type in second pass
     fn define_fun_type(
         &mut self,
+        external: bool,
         pub_tok: &'ast Option<ast::Span>,
         type_params: &'ast Vec<ast::Span>,
         ast_fun_name: &'ast ast::Spanned<ast::Name>,
@@ -301,6 +313,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             None => ty::void_ty(self.module.ty_ctx()),
         };
         let def = ir::DefKind::Fun {
+            external,
             params: fun_params,
             return_type,
             // TODO: insert these
@@ -376,6 +389,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             params,
             return_type,
             ty_params,
+            ..
         } =
             &self.module.get_def_by_path(&path).unwrap().kind
         {

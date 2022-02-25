@@ -208,6 +208,15 @@ pub type FunParams = (Option<Spanned<SelfType>>, SpanVec<(Ident, SpanBox<Type>)>
 
 #[derive(Debug, Clone)]
 pub enum TopStmt {
+    FunDecl {
+        extern_tok: Option<Span>,
+        pub_tok: Option<Span>,
+        fun_tok: Span,
+        type_params: Vec<Span>,
+        name: SpanBox<Name>,
+        params: FunParams,
+        return_type: Option<SpanBox<Type>>,
+    },
     Fun {
         pub_tok: Option<Span>,
         fun_tok: Span,

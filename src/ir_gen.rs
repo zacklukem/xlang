@@ -165,7 +165,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         &self,
         name: &ir::Path,
         generics: &Vec<ty::Ty<'ty>>,
-    ) -> Option<(ty::Ty<'ty>, bool)> {
+    ) -> Option<(ty::Ty<'ty>, Option<String>)> {
         if let ir::Path::Terminal(id) = name {
             if let Some(var) = self.scope.resolve(&id) {
                 return self
@@ -173,7 +173,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                     .get(var)
                     .cloned()
                     .or_else(|| self.params.get(var).cloned())
-                    .map(|v| (v, true));
+                    .map(|v| (v, Some(var.clone())));
             }
         }
         match self.module.get_def_by_path(name) {
@@ -183,6 +183,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                         ty_params,
                         params,
                         return_type,
+                        ..
                     },
                 ..
             }) => {
@@ -198,7 +199,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                             .map(|(a, b)| (a.clone(), b.clone()))
                             .collect(),
                     ),
-                    false,
+                    None,
                 ))
             }
             _ => None,
@@ -556,13 +557,10 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
             self.err
                 .err(format!("Name `{}` not found in scope", span.str()), span);
         }
-        let (ty, is_local) = ty.unwrap_or_else(|| (ty::err_ty(self.module.ty_ctx()), false));
-        let expr = if is_local {
-            if let ir::Path::Terminal(name) = name {
-                ir::ExprKind::Ident(name)
-            } else {
-                panic!("internal err")
-            }
+        let (ty, var_name) = ty.unwrap_or_else(|| (ty::err_ty(self.module.ty_ctx()), None));
+        let expr = if let Some(var) = var_name {
+            // self.scope.resolve(&id)
+            ir::ExprKind::Ident(var)
         } else {
             ir::ExprKind::GlobalIdent(name, generics)
         };
@@ -846,6 +844,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                                 params,
                                 return_type,
                                 ty_params: fun_ty_params,
+                                ..
                             } => {
                                 // let self_type = match params.first() {
                                 //     Some((name, ty)) if name == "self" => ty,

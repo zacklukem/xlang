@@ -1,6 +1,15 @@
 use crate::ty::*;
 use std::fmt::Write;
 
+pub fn mangle_ty_vec<'ty>(vec: &Vec<Ty<'ty>>) -> String {
+    let mut string = String::new();
+    for ty in vec {
+        string += "_";
+        ty.mangle_write(&mut string).unwrap();
+    }
+    string
+}
+
 impl std::fmt::Display for PrimitiveType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use PrimitiveType::*;
@@ -48,7 +57,7 @@ impl<'ty> Ty<'ty> {
                 f.write_str("_ptr")
             }
             Tuple(types) => {
-                f.write_str("tup")?;
+                f.write_str("tuple")?;
                 for ty in types {
                     f.write_str("_")?;
                     ty.mangle_write(f)?;

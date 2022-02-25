@@ -213,6 +213,13 @@ impl<'ty> Ty<'ty> {
             _ => false,
         }
     }
+
+    pub fn is_integer_ukn(self) -> bool {
+        match self.0 .0 {
+            TyKind::Primitive(PrimitiveType::Integer) => true,
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]

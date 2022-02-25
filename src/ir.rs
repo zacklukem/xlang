@@ -31,11 +31,23 @@ pub enum DefVisibility {
 pub struct Def<'ty> {
     pub visibility: DefVisibility,
     pub kind: DefKind<'ty>,
+    pub external: bool,
 }
 
 impl Def<'_> {
     pub fn new(visibility: DefVisibility, kind: DefKind) -> Def {
-        Def { visibility, kind }
+        Def {
+            visibility,
+            kind,
+            external: false,
+        }
+    }
+    pub fn new_extern(visibility: DefVisibility, kind: DefKind) -> Def {
+        Def {
+            visibility,
+            kind,
+            external: true,
+        }
     }
 }
 
@@ -50,6 +62,7 @@ pub enum DefKind<'ty> {
         symbols: HashMap<String, DefId>,
     },
     Fun {
+        external: bool,
         ty_params: Vec<String>,
         params: Vec<(String, Ty<'ty>)>,
         return_type: Ty<'ty>,

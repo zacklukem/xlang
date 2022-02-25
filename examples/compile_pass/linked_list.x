@@ -1,20 +1,23 @@
-fun free(ptr: *void) {}
-fun panic(msg: *[]u8) {}
-fun alloc(size: usize) -> *void {}
-fun assert(expr: bool) {}
+extern fun free(ptr: *void);
+extern fun panic(msg: *[]u8);
+extern fun alloc(size: usize) -> *void;
+extern fun check(expr: bool);
 
-fun main() {
+fun hi() -> (i32, i64) {}
+
+fun main() -> i32 {
     let list = List::new::<i64>();
-    assert(list.len() == 0);
+    check(list.len() == 0);
     list.push_back(3);
-    assert(list.len() == 1);
-    assert(list.pop_back() == 3);
+    check(list.len() == 1);
+    check(list.pop_back() == 3);
 
     let list = List::new::<i32>();
-    assert(list.len() == 0);
+    check(list.len() == 0);
     list.push_back(3);
-    assert(list.len() == 1);
-    assert(list.pop_back() == 3);
+    check(list.len() == 1);
+    check(list.pop_back() == 3);
+    return 0;
 }
 
 struct<T> Word {
@@ -47,7 +50,6 @@ fun<K> Node::<K>::len(*self) -> usize {
     if self == null {
         return 0;
     } else {
-        self.next = self;
         return self.next.len() + 1;
     }
 }
@@ -73,7 +75,14 @@ fun<T> List::<T>::push_front(*self, val: T) {
 }
 
 fun<T> List::<T>::push_back(*self, val: T) {
-    self.head.push_back(val);
+    if self.head == null {
+        self.head = box Node::<T> of {
+            data: val,
+            next: null,
+        };
+    } else {
+        self.head.push_back(val);
+    }
 }
 
 fun<T> Node::<T>::push_back(*self, val: T) {
@@ -136,6 +145,10 @@ fun<T> Node::<T>::nth(*self, idx: usize) -> T {
 }
 
 fun<T> Node::<T>::free(*self) {
-    self.next.free();
-    free(self);
+    if self != null {
+        if self.next != null {
+            self.next.free();
+        }
+        free(self);
+    }
 }
