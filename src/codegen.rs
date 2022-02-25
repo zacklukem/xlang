@@ -453,6 +453,22 @@ where
         use ExprKind::*;
         match &expr.kind {
             Ident(id) => write!(self.f(), "{}", id)?,
+            // HACK: make some system for intrinsics
+            Call { expr, arguments }
+                if arguments.len() == 0
+                    && matches!(&expr.kind,
+            GlobalIdent(Path::Terminal(name), generics)
+                if name == "sizeof" && generics.len() == 1) =>
+            {
+                if let GlobalIdent(Path::Terminal(_), generics) = &expr.kind {
+                    let ty = generics[0];
+                    let ty = replace_generics(self.module.ty_ctx(), ty, ty_params);
+                    let ty = ty.to_c_type(None);
+                    write!(self.f(), "sizeof({})", ty)?;
+                } else {
+                    panic!()
+                }
+            }
             GlobalIdent(path, generics) => {
                 let generics = generics
                     .iter()
@@ -486,6 +502,11 @@ where
                 self.expr(rhs, ty_params)?;
                 write!(self.f(), ")")?;
             }
+            Binary(lhs, BinOp::EqEq, rhs) => {
+                self.expr(lhs, ty_params)?;
+                write!(self.f(), "==")?;
+                self.expr(rhs, ty_params)?;
+            }
             Binary(lhs, op, rhs) => {
                 write!(self.f(), "(")?;
                 self.expr(lhs, ty_params)?;
@@ -516,11 +537,16 @@ where
                 self.expr(rhs, ty_params)?;
                 write!(self.f(), ")")?;
             }
+            // Just for fun :)
+            Dot(lhs, member) if matches!(&lhs.kind, Unary(UnaryOp::Deref, _)) => {
+                if let Unary(UnaryOp::Deref, lhs) = &lhs.kind {
+                    self.expr(lhs, ty_params)?;
+                    write!(self.f(), "->{}", member)?;
+                }
+            }
             Dot(lhs, member) => {
-                write!(self.f(), "(")?;
                 self.expr(lhs, ty_params)?;
                 write!(self.f(), ".{}", member)?;
-                write!(self.f(), ")")?;
             }
             Cast(expr, ty) => {
                 if !ty.is_integer_ukn() {
@@ -559,8 +585,13 @@ where
                 }
                 write!(self.f(), ")")?;
             }
-            Index { expr, index } => todo!(),
-            Array { members } => todo!(),
+            Index { expr, index } => {
+                self.expr(expr, ty_params)?;
+                write!(self.f(), "[")?;
+                self.expr(index, ty_params)?;
+                write!(self.f(), "]")?;
+            }
+            Array { members: _ } => todo!(),
             Struct { ty, members } => {
                 //todo
                 let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);

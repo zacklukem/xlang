@@ -1111,30 +1111,17 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         expr: &ast::Spanned<ast::Expr>,
         index: &ast::Spanned<ast::Expr>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
-        let mut expr = self.gen_expr(expr)?;
+        let expr = self.gen_expr(expr)?;
         let index = self.gen_expr_coerce(
             index,
             ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::USize),
         )?;
 
-        while let ty::TyKind::Pointer(_mutable, ty) = expr.ty().0 .0 {
-            expr = ir::Expr::new(
-                ir::ExprKind::Unary(ir::UnaryOp::Deref, Box::new(expr)),
-                span.clone(),
-                *ty,
-            );
-        }
-
         let ty = match (expr.ty().0 .0, index.ty().0 .0) {
-            (ty::TyKind::UnsizedArray(inner_ty), ty::TyKind::Range(v))
-                if matches!(v.0 .0, ty::TyKind::Primitive(ty::PrimitiveType::USize)) =>
-            {
-                inner_ty.slice_ty(self.module.ty_ctx())
-            }
             (
-                ty::TyKind::UnsizedArray(inner_ty) | ty::TyKind::SizedArray(_, inner_ty),
+                ty::TyKind::Pointer(_, inner_type),
                 ty::TyKind::Primitive(ty::PrimitiveType::USize),
-            ) => *inner_ty,
+            ) => *inner_type,
             _ => ty::err_ty(self.module.ty_ctx()),
         };
 
