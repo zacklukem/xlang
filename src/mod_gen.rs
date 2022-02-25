@@ -213,7 +213,6 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                 } => {
                     self.define_fun_type(false, pub_tok, type_params, name, params, return_type)?
                 }
-                _ => todo!(),
             }
         }
         Ok(())

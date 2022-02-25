@@ -1,6 +1,5 @@
 extern fun free(ptr: *void);
 extern fun panic(msg: *[]u8);
-extern fun alloc(size: usize) -> *void;
 extern fun check(expr: bool);
 
 fun hi() -> (i32, i64) {}

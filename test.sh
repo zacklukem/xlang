@@ -64,7 +64,7 @@ do
         continue
     fi
 
-    examples/build/compile_pass/$filename
+    examples/build/compile_pass/$filename > $TMPFILE 2>&1
 
     ERR=$?
 

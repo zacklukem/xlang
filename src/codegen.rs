@@ -8,8 +8,8 @@ use crate::monomorphize::DefInstance;
 use crate::ty::{PrimitiveType, StructType, Ty, TyKind};
 use crate::ty_mangle::mangle_ty_vec;
 use std::collections::HashSet;
+use std::fmt::Result as FmtResult;
 use std::fmt::Write as FmtWrite;
-use std::fmt::{format, Result as FmtResult};
 use std::io::Result as IoResult;
 use std::io::Write;
 
@@ -400,10 +400,10 @@ where
                 self.stmt(block, ty_params)?;
             }
             For {
-                initializer,
-                condition,
-                incrementor,
-                block,
+                initializer: _,
+                condition: _,
+                incrementor: _,
+                block: _,
             } => {
                 todo!()
             }
@@ -533,13 +533,21 @@ where
                     self.expr(expr, ty_params)?;
                 }
             }
-            Range(from, to) => todo!(),
-            RangeFrom(to) => todo!(),
+            Range(_from, _to) => todo!(),
+            RangeFrom(_to) => todo!(),
             Ternary {
                 condition,
                 then_expr,
                 else_expr,
-            } => todo!(),
+            } => {
+                write!(self.f(), "((")?;
+                self.expr(condition, ty_params)?;
+                write!(self.f(), ") ? (")?;
+                self.expr(then_expr, ty_params)?;
+                write!(self.f(), ") : (")?;
+                self.expr(else_expr, ty_params)?;
+                write!(self.f(), "))")?;
+            }
             Call { expr, arguments } => {
                 self.expr(expr, ty_params)?;
                 write!(self.f(), "(")?;
