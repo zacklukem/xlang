@@ -54,6 +54,11 @@ DeclTypeParams: Vec<Span> = {
     "<" <Vec0<Span<r"[_a-zA-Z][_a-zA-Z0-9]*">, ",">> ">" => <>,
 }
 
+EnumVariant: (Ident, SpanVec<Type>) = {
+    <Ident> "(" <Vec0<Spanned<Type>, ",">> ")" => (<>),
+    <Ident> => (<>, Vec::new()),
+}
+
 pub TopStmt: TopStmt = {
     <extern_tok: Span<"extern">?> <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <type_params: DeclTypeParams?> <name: SpanBox<Name>> "(" <params: FunParams> ")"
         <return_type: ("->" <SpanBox<Type>>)?> ";" => TopStmt::FunDecl {
@@ -82,6 +87,14 @@ pub TopStmt: TopStmt = {
             type_params: type_params.unwrap_or_else(Vec::new),
             name,
             members,
+        },
+    <pub_tok: Span<"pub">?> <enum_tok: Span<"enum">> <type_params: DeclTypeParams?> <name: SpanBox<Name>> "{"
+        <variants: Vec0<Spanned<EnumVariant>, ",">> "}" => TopStmt::Enum {
+            pub_tok,
+            enum_tok,
+            type_params: type_params.unwrap_or_else(Vec::new),
+            name,
+            variants,
         },
 };
 
@@ -364,3 +377,10 @@ Span<T>: Span = {
 
 // Num:  = <s:r"[0-9]+"> => i32::from_str(s).unwrap();
 
+
+match {
+    r"\s*" => { },
+    r"--[^\n\r]*[\n\r]*" => { },
+} else {
+    _
+}

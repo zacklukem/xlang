@@ -34,13 +34,11 @@ pub trait TypeGenerator<'ast, 'ty> {
                     }
                     _ => {
                         let def_id = self.module().get_def_id_by_path(&path).unwrap();
-                        self.module()
-                            .ty_ctx()
-                            .int(ty::TyKind::Struct(ty::StructType {
-                                def_id,
-                                path,
-                                ty_params,
-                            }))
+                        self.module().ty_ctx().int(ty::TyKind::Adt(ty::AdtType {
+                            def_id,
+                            path,
+                            ty_params,
+                        }))
                     }
                 }
             }
@@ -154,6 +152,28 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         for stmt in &self.ast_module.top_stmts {
             let stmt = &stmt.value;
             match stmt {
+                TopStmt::Enum {
+                    pub_tok,
+                    type_params,
+                    name,
+                    ..
+                } => {
+                    let path = self.gen_path(name.value())?;
+                    let def = ir::Def::new(
+                        if pub_tok.is_some() {
+                            ir::DefVisibility::Public
+                        } else {
+                            ir::DefVisibility::Private
+                        },
+                        ir::DefKind::Enum {
+                            symbols: Default::default(),
+                            variants: Default::default(),
+                            // TODO: insert these
+                            ty_params: type_params.iter().map(|v| v.str().into()).collect(),
+                        },
+                    );
+                    self.module.declare(path, def).unwrap();
+                }
                 TopStmt::Struct {
                     pub_tok,
                     type_params,
@@ -195,6 +215,12 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     members,
                     ..
                 } => self.define_struct(name, type_params, members)?,
+                TopStmt::Enum {
+                    name,
+                    type_params,
+                    variants,
+                    ..
+                } => self.define_enum(name, type_params, variants)?,
                 TopStmt::FunDecl {
                     pub_tok,
                     type_params,
@@ -234,7 +260,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                 Some(
                     self.module
                         .ty_ctx()
-                        .int(ty::TyKind::Struct(ty::StructType {
+                        .int(ty::TyKind::Adt(ty::AdtType {
                             def_id,
                             path: struct_name.clone(),
                             ty_params: struct_generics,
@@ -312,7 +338,11 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             None => ty::void_ty(self.module.ty_ctx()),
         };
         let def = ir::DefKind::Fun {
-            external,
+            external: if external {
+                ir::ExternKind::Declare
+            } else {
+                Default::default()
+            },
             params: fun_params,
             return_type,
             // TODO: insert these
@@ -321,6 +351,84 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.module
             .declare(fun_name, ir::Def::new(visibility, def))
             .unwrap();
+        self.current_generics.clear();
+        Ok(())
+    }
+
+    fn define_enum(
+        &mut self,
+        ast_enum_name: &'ast ast::Spanned<ast::Name>,
+        type_params: &'ast Vec<ast::Span>,
+        variants: &'ast ast::SpanVec<(ast::Ident, ast::SpanVec<ast::Type>)>,
+    ) -> Result<(), ModGenError> {
+        self.current_generics.clear();
+        self.current_generics
+            .extend(type_params.iter().map(|p| p.str().into()));
+        let enum_path = self.gen_path(ast_enum_name.value())?;
+        let def_id = self.module.get_def_id_by_path(&enum_path).unwrap();
+
+        let fun_ty_params = self
+            .current_generics
+            .iter()
+            .map(|name| self.module.ty_ctx().int(ty::TyKind::Param(name.clone())))
+            .collect();
+
+        let self_ty = ty::TyKind::Adt(ty::AdtType {
+            def_id,
+            path: enum_path.clone(),
+            ty_params: fun_ty_params,
+        });
+        let self_ty = self.module.ty_ctx().int(self_ty);
+
+        let mut sym_variants = HashMap::new();
+
+        for spanned_variant in variants.iter() {
+            let (variant_name, variant_types) = &spanned_variant.value;
+            let types = self.gen_type_iter(variant_types.iter())?;
+
+            let fun_params = types
+                .iter()
+                .enumerate()
+                .map(|(i, ty)| (format!("_{}", i), *ty))
+                .collect();
+
+            let fun_name = enum_path.push_end(variant_name.str().into());
+
+            let fun_def = ir::DefKind::Fun {
+                external: ir::ExternKind::VariantConstructor,
+                params: fun_params,
+                return_type: self_ty,
+                ty_params: self.current_generics.clone(),
+            };
+
+            self.module
+                .declare(fun_name, ir::Def::new(ir::DefVisibility::Public, fun_def))
+                .unwrap();
+
+            // asdf
+            let ty = ty::TyKind::Tuple(types);
+            let ty = self.module.ty_ctx().int(ty);
+
+            let name = variant_name.str().into();
+            if sym_variants.contains_key(&name) {
+                self.err.err(
+                    format!(
+                        "The enum {:?} already contains a variant named {}",
+                        ast_enum_name.value, name
+                    ),
+                    &variant_name.span,
+                )
+            } else {
+                sym_variants.insert(name, ty);
+            }
+        }
+
+        let sym = self.module.get_mut_def_by_id(def_id);
+        if let ir::DefKind::Enum { variants, .. } = &mut sym.kind {
+            *variants = sym_variants;
+        } else {
+            panic!("Inconsistent define/declare passes");
+        }
         self.current_generics.clear();
         Ok(())
     }

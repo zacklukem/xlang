@@ -87,7 +87,7 @@ impl<'ty> Ty<'ty> {
                 f.write_str("_range")
             }
             Lhs(inner) => inner.mangle_write(f),
-            Struct(StructType {
+            Adt(AdtType {
                 def_id: _,
                 path,
                 ty_params,

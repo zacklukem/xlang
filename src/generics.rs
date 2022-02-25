@@ -1,4 +1,4 @@
-use crate::ty::{StructType, Ty, TyCtx, TyKind};
+use crate::ty::{AdtType, Ty, TyCtx, TyKind};
 
 pub fn replace_generics<'ty>(
     ctx: TyCtx<'ty>,
@@ -48,7 +48,7 @@ pub fn replace_generics<'ty>(
                 .collect();
             ctx.int(Fun(params, ret))
         }
-        Struct(StructType {
+        Adt(AdtType {
             def_id,
             path,
             ty_params,
@@ -57,7 +57,7 @@ pub fn replace_generics<'ty>(
                 .iter()
                 .map(|ty| replace_generics(ctx, *ty, generics))
                 .collect();
-            ctx.int(Struct(StructType {
+            ctx.int(Adt(AdtType {
                 def_id: *def_id,
                 path: path.clone(),
                 ty_params,

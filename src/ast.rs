@@ -233,6 +233,13 @@ pub enum TopStmt {
         name: SpanBox<Name>,
         members: SpanVec<(Ident, SpanBox<Type>)>,
     },
+    Enum {
+        pub_tok: Option<Span>,
+        enum_tok: Span,
+        type_params: Vec<Span>,
+        name: SpanBox<Name>,
+        variants: SpanVec<(Ident, SpanVec<Type>)>,
+    },
 }
 
 #[derive(Debug, Clone)]

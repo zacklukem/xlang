@@ -1,7 +1,7 @@
 //! Handles pretty-printing the IR
 
 use crate::ir::*;
-use crate::ty::{PointerType, StructType, Ty, TyKind};
+use crate::ty::{PointerType, AdtType, Ty, TyKind};
 use std::fmt::{Display, Write};
 
 fn write_type_array<'k, 'a>(
@@ -40,7 +40,7 @@ impl Display for TyKind<'_> {
         match self {
             TyKind::Param(p) => f.write_str(&p),
             TyKind::Primitive(pt) => write!(f, "{}", pt),
-            TyKind::Struct(StructType {
+            TyKind::Adt(AdtType {
                 path, ty_params, ..
             }) => {
                 write!(f, "{}", path)?;

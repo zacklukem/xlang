@@ -72,8 +72,6 @@ fn main() {
 
     let (monos, special_types) = mono.finish();
 
-    // println!("{:#?}", module.functions);
-
     // mono.print_instances();
 
     let header_filename = second_arg.clone() + ".h";

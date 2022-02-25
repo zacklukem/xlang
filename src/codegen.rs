@@ -1,11 +1,11 @@
 use crate::generics::replace_generics;
 use crate::intern::Int;
 use crate::ir::{
-    AssignOp, BinOp, DefKind, Expr, ExprKind, FloatSpecifier, IntegerSpecifier, Module, Path, Stmt,
-    StmtKind, UnaryOp,
+    AssignOp, BinOp, DefKind, Expr, ExprKind, ExternKind, FloatSpecifier, IntegerSpecifier, Module,
+    Path, Stmt, StmtKind, UnaryOp,
 };
 use crate::monomorphize::DefInstance;
-use crate::ty::{PrimitiveType, StructType, Ty, TyKind};
+use crate::ty::{AdtType, PrimitiveType, Ty, TyKind};
 use crate::ty_mangle::mangle_ty_vec;
 use std::collections::HashSet;
 use std::fmt::Result as FmtResult;
@@ -20,6 +20,7 @@ pub struct CodeGen<'ty, T> {
     special_types: &'ty HashSet<Ty<'ty>>,
     header_writer: &'ty mut T,
     source_writer: &'ty mut T,
+    indent: usize,
 }
 
 fn mangle_path(path: &Path) -> String {
@@ -112,22 +113,16 @@ impl<'ty> Ty<'ty> {
                 }
             }
             Tuple(types) => {
-                // Tuple macro
                 write!(f, "tuple")?;
                 for ty in types {
                     f.write_str("_")?;
                     ty.mangle_write(f)?;
                 }
                 f.write_str("_t")?;
-
-                // write!(f, "tuple_{}_t(", types.len())?;
-                // for (i, ty) in types.iter().enumerate() {
-                //     ty.to_c_type_write(None, f)?;
-                //     if i + 1 < types.len() {
-                //         f.write_str(", ")?;
-                //     }
-                // }
-                // f.write_str(")")?;
+                if let Some(ident) = ident {
+                    f.write_str(" ")?;
+                    f.write_str(ident)?;
+                }
             }
             // ret (*name)(params,..)
             Fun(params, ret) => {
@@ -152,7 +147,7 @@ impl<'ty> Ty<'ty> {
                 todo!()
             }
             Lhs(inner) => inner.to_c_type_write(ident, f)?,
-            Struct(StructType {
+            Adt(AdtType {
                 def_id: _,
                 path,
                 ty_params,
@@ -187,6 +182,7 @@ where
         source_writer: &'ty mut T,
     ) -> CodeGen<'ty, T> {
         CodeGen {
+            indent: 0,
             module,
             monos,
             special_types,
@@ -234,11 +230,31 @@ where
 
         writeln!(self.header_writer)?;
 
+        for (def_id, def) in self.module.defs_iter() {
+            match &def.kind {
+                DefKind::Enum { variants, .. } => {
+                    let path = self.module.get_path_by_def_id(*def_id);
+                    let path = mangle_path(path);
+                    let path_name = path.clone() + "_k";
+                    writeln!(self.header_writer, "enum {0} {{", path_name)?;
+                    for (variant, _) in variants {
+                        writeln!(self.header_writer, "    {}_{}_k,", path.clone(), variant)?;
+                    }
+                    writeln!(self.header_writer, "}};")?;
+                }
+                _ => (),
+            }
+        }
+
         for mono in self.monos {
             let def = self.module.get_def_by_id(mono.def_id);
             let path = self.module.get_path_by_def_id(mono.def_id);
             match &def.kind {
                 DefKind::Struct { .. } => {
+                    let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
+                    writeln!(self.header_writer, "typedef struct {0} {0}_t;", path_name)?;
+                }
+                DefKind::Enum { .. } => {
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
                     writeln!(self.header_writer, "typedef struct {0} {0}_t;", path_name)?;
                 }
@@ -325,6 +341,28 @@ where
                     }
                     writeln!(self.header_writer, "}};")?;
                 }
+                DefKind::Enum {
+                    variants,
+                    ty_params,
+                    ..
+                } => {
+                    let path = mangle_path(path);
+                    let path_name = path.clone() + &mangle_ty_vec(&mono.ty_params);
+                    let kind_type_name = path.clone() + "_k";
+
+                    let generics = zip_clone_vec(ty_params, &mono.ty_params);
+
+                    writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
+                    writeln!(self.header_writer, "    enum {} kind;", kind_type_name)?;
+                    writeln!(self.header_writer, "    union {{")?;
+                    for (name, ty) in variants {
+                        let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                        let ty = ty.to_c_type(Some(name));
+                        writeln!(self.header_writer, "        {};", ty)?;
+                    }
+                    writeln!(self.header_writer, "    }};")?;
+                    writeln!(self.header_writer, "}};")?;
+                }
                 _ => (),
             }
         }
@@ -341,8 +379,12 @@ where
                     ty_params,
                     params,
                     return_type,
-                    external: false,
-                } => {
+                    external,
+                } if matches!(
+                    external,
+                    ExternKind::Define | ExternKind::VariantConstructor
+                ) =>
+                {
                     let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                     let generics = zip_clone_vec(ty_params, &mono.ty_params);
@@ -358,15 +400,48 @@ where
                         }
                     }
                     writeln!(self.source_writer, ") {{")?;
-                    let fun = self.module.functions.get(&mono.def_id).unwrap();
+                    if *external == ExternKind::Define {
+                        let fun = self.module.functions.get(&mono.def_id).unwrap();
 
-                    for (name, ty) in &fun.variable_defs {
-                        let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
-                        let ty = ty.to_c_type(Some(name));
-                        writeln!(self.source_writer, "    {};", ty)?;
+                        for (name, ty) in &fun.variable_defs {
+                            let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                            let ty = ty.to_c_type(Some(name));
+                            writeln!(self.source_writer, "    {};", ty)?;
+                        }
+
+                        self.stmt(&fun.block, &generics)?;
+                    } else {
+                        let variant = path.end();
+                        let enum_name = path.pop_end().unwrap();
+                        let variants = if let DefKind::Enum { variants, .. } =
+                            &self.module.get_def_by_path(&enum_name).unwrap().kind
+                        {
+                            variants
+                        } else {
+                            panic!()
+                        };
+                        let inner_ty = variants.get(variant).unwrap();
+                        let inner_ty = replace_generics(self.module.ty_ctx(), *inner_ty, &generics);
+                        let inner_ty = inner_ty.to_c_type(None);
+
+                        let mut initializers = String::new();
+                        for i in 0..params.len() {
+                            initializers += &format!("_{}", i);
+                            if i < params.len() - 1 {
+                                initializers += ", ";
+                            }
+                        }
+
+                        let kind = mangle_path(path);
+                        // let inner_ty =
+                        writeln!(
+                            self.source_writer,
+                            "    {return_type} out;\n    \
+                             out.kind = {kind}_k;\n    \
+                             out.{variant} = ({inner_ty}){{ {initializers} }};\n    \
+                             return out;",
+                        )?;
                     }
-
-                    self.stmt(&fun.block, &generics)?;
                     writeln!(self.source_writer, "}}")?;
                 }
                 _ => (),
@@ -378,6 +453,13 @@ where
 
     pub fn stmt(&mut self, stmt: &Stmt<'ty>, ty_params: &Vec<(String, Ty<'ty>)>) -> IoResult<()> {
         use StmtKind::*;
+        macro_rules! indent {
+            () => {
+                for _ in 0..self.indent {
+                    write!(self.f(), "    ")?;
+                }
+            };
+        }
         match &stmt.kind {
             If {
                 condition,
@@ -410,19 +492,25 @@ where
             Labeled(label, stmt) => {
                 write!(self.source_writer, "{}:\n", label)?;
                 if let Some(stmt) = stmt {
+                    indent!();
                     self.stmt(stmt, ty_params)?;
                 }
             }
             Block(stmts) => {
                 writeln!(self.source_writer, "{{")?;
+                self.indent += 1;
                 for stmt in stmts {
+                    indent!();
                     self.stmt(stmt, ty_params)?;
                     writeln!(self.source_writer)?;
                 }
-                writeln!(self.source_writer, "}}")?;
+                self.indent -= 1;
+                indent!();
+                write!(self.source_writer, "}}")?;
             }
             StmtList(stmts) => {
                 for stmt in stmts {
+                    indent!();
                     self.stmt(stmt, ty_params)?;
                     writeln!(self.source_writer)?;
                 }

@@ -178,13 +178,13 @@ pub enum TyKind<'ty> {
     UnsizedArray(Ty<'ty>),
     Range(Ty<'ty>),
     Lhs(Ty<'ty>),
-    Struct(StructType<'ty>),
+    Adt(AdtType<'ty>),
     Err,
     Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
-pub struct StructType<'ty> {
+pub struct AdtType<'ty> {
     pub def_id: DefId,
     pub path: Path,
     pub ty_params: Vec<Ty<'ty>>,

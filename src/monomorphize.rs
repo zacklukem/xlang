@@ -1,6 +1,6 @@
 use crate::generics::replace_generics;
-use crate::ir::{DefId, DefKind, Expr, ExprKind, Module, Stmt, StmtKind};
-use crate::ty::{StructType, Ty, TyKind};
+use crate::ir::{DefId, DefKind, Expr, ExprKind, ExternKind, Module, Stmt, StmtKind};
+use crate::ty::{AdtType, Ty, TyKind};
 use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
 
@@ -115,7 +115,7 @@ impl<'ty> Monomorphize<'ty> {
                     self.mono_ty(*ty);
                 }
             }
-            Struct(StructType {
+            Adt(AdtType {
                 def_id,
                 ty_params: passed_ty_params,
                 ..
@@ -135,6 +135,20 @@ impl<'ty> Monomorphize<'ty> {
                             symbols,
                         );
                     }
+                    DefKind::Enum {
+                        ty_params: named_ty_params,
+                        variants,
+                        symbols,
+                    } => {
+                        assert_eq!(named_ty_params.len(), passed_ty_params.len());
+                        self.enum_def(
+                            *def_id,
+                            &named_ty_params,
+                            &passed_ty_params,
+                            variants,
+                            symbols,
+                        );
+                    }
                     _ => panic!("err"),
                 }
                 // self.mono
@@ -146,7 +160,7 @@ impl<'ty> Monomorphize<'ty> {
 
     pub fn fun_def(
         &mut self,
-        external: bool,
+        external: ExternKind,
         def_id: DefId,
         ty_params_names: &Vec<String>,
         ty_params_types: &Vec<Ty<'ty>>,
@@ -172,7 +186,7 @@ impl<'ty> Monomorphize<'ty> {
             for param in params_iter {
                 self.mono_ty(param);
             }
-            if !external {
+            if external == ExternKind::Define {
                 self.fun_body(def_id, &ty_params);
             }
         }
@@ -296,6 +310,35 @@ impl<'ty> Monomorphize<'ty> {
                 }
             }
             Ident(_) | Integer(_) | Float(_) | String(_) | Bool(_) | Null | Err => (),
+        }
+    }
+
+    pub fn enum_def(
+        &mut self,
+        def_id: DefId,
+        ty_params_names: &Vec<String>,
+        ty_params_types: &Vec<Ty<'ty>>,
+        variants: &HashMap<String, Ty<'ty>>,
+        _symbols: &HashMap<String, DefId>,
+    ) {
+        if self
+            .monos
+            .insert(DefInstance::new(def_id, ty_params_types.clone()))
+        {
+            assert_eq!(ty_params_names.len(), ty_params_types.len());
+            let ty_params = Iterator::zip(
+                ty_params_names.iter().cloned(),
+                ty_params_types.iter().cloned(),
+            )
+            .collect();
+
+            let variants_iter = variants
+                .values()
+                .map(|ty| replace_generics(self.module.ty_ctx(), *ty, &ty_params));
+
+            for variant in variants_iter {
+                self.mono_ty(variant);
+            }
         }
     }
 

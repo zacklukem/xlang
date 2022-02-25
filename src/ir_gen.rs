@@ -820,7 +820,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         }
 
         let ty = match lhs.ty().0 .0 {
-            ty::TyKind::Struct(ty::StructType {
+            ty::TyKind::Adt(ty::AdtType {
                 def_id,
                 ty_params: instance_ty_params,
                 ..
@@ -1225,7 +1225,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 if failed {
                     ty::err_ty(self.module.ty_ctx())
                 } else {
-                    self.module.ty_ctx().int(ty::TyKind::Struct(ty::StructType {
+                    self.module.ty_ctx().int(ty::TyKind::Adt(ty::AdtType {
                         def_id,
                         path: type_name,
                         ty_params: type_generics,

@@ -51,9 +51,28 @@ impl Def<'_> {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+pub enum ExternKind {
+    Declare,
+    Intrinsic,
+    VariantConstructor,
+    Define,
+}
+
+impl Default for ExternKind {
+    fn default() -> Self {
+        ExternKind::Define
+    }
+}
+
 #[derive(Debug)]
 pub enum DefKind<'ty> {
     Mod {
+        symbols: HashMap<String, DefId>,
+    },
+    Enum {
+        ty_params: Vec<String>,
+        variants: HashMap<String, Ty<'ty>>,
         symbols: HashMap<String, DefId>,
     },
     Struct {
@@ -62,7 +81,7 @@ pub enum DefKind<'ty> {
         symbols: HashMap<String, DefId>,
     },
     Fun {
-        external: bool,
+        external: ExternKind,
         ty_params: Vec<String>,
         params: Vec<(String, Ty<'ty>)>,
         return_type: Ty<'ty>,
@@ -93,6 +112,14 @@ impl Path {
     pub fn is_terminal(&self) -> bool {
         use Path::*;
         matches!(self, Terminal(_))
+    }
+
+    pub fn push_end(&self, end: String) -> Path {
+        use Path::*;
+        match self {
+            Terminal(name) => Namespace(name.clone(), Box::new(Terminal(end))),
+            Namespace(name, path) => Namespace(name.clone(), Box::new(path.push_end(end))),
+        }
     }
 
     pub fn pop_end(&self) -> Option<Path> {
@@ -176,7 +203,9 @@ impl<'ty> Module<'ty> {
             match path.pop_end() {
                 Some(head_path) => {
                     match &mut self.get_mut_def_by_path(&head_path).ok_or(NoModule)?.kind {
-                        DefKind::Mod { symbols, .. } | DefKind::Struct { symbols, .. } => {
+                        DefKind::Mod { symbols, .. }
+                        | DefKind::Struct { symbols, .. }
+                        | DefKind::Enum { symbols, .. } => {
                             let end = path.end().clone();
                             assert!(symbols.insert(end, id).is_none(), "symbol already inserted");
                         }
