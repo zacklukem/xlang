@@ -9,7 +9,7 @@ fun<T> resize(ptr: **T, len: usize) {
 }
 
 fun<T> allocate(len: usize) -> *T {
-    return malloc(len * sizeof::<T>()) as *T;
+    ret malloc(len * sizeof::<T>()) as *T;
 }
 
 struct<T> Vec {
@@ -19,7 +19,7 @@ struct<T> Vec {
 }
 
 fun<T> Vec::<T>::new() -> Vec::<T> {
-    return Vec::<T> of {
+    ret Vec::<T> of {
         data: allocate::<T>(8),
         len: 0,
         cap: 8,
@@ -53,5 +53,5 @@ fun main() -> i32 {
     vec.push(123);
     check(vec.len == 9);
     check(vec.cap == 16);
-    return 0;
+    ret 0;
 }

@@ -13,5 +13,5 @@ fun main() -> i32 {
             break;
         }
     }
-    return 0;
+    ret 0;
 }

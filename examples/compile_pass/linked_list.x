@@ -15,7 +15,7 @@ fun main() -> i32 {
     list.push_back(3);
     check(list.len() == 1);
     check(list.pop_back() == 3);
-    return 0;
+    ret 0;
 }
 
 struct<T> Word {
@@ -32,23 +32,23 @@ struct<T> Node {
 }
 
 fun<T> List::<T>::new() -> List::<T> {
-    return List::<T> of { head: null, };
+    ret List::<T> of { head: null, };
 }
 
 fun<T> List::<T>::len(*self) -> usize {
     let k = Node::len::<T>;
     if self.head == null {
-        return 0;
+        ret 0;
     } else {
-        return k(self.head);
+        ret k(self.head);
     }
 }
 
 fun<K> Node::<K>::len(*self) -> usize {
     if self == null {
-        return 0;
+        ret 0;
     } else {
-        return self.next.len() + 1;
+        ret self.next.len() + 1;
     }
 }
 
@@ -101,9 +101,9 @@ fun<T> List::<T>::pop_back(*self) -> T {
         let out = self.head.data;
         self.head.free();
         self.head = null;
-        return out;
+        ret out;
     } else {
-        return self.head.pop_back();
+        ret self.head.pop_back();
     }
 }
 
@@ -114,9 +114,9 @@ fun<T> Node::<T>::pop_back(*self) -> T {
         let out = self.next.data;
         self.next.free();
         self.next = null;
-        return out;
+        ret out;
     } else {
-        return self.next.pop_back();
+        ret self.next.pop_back();
     }
 }
 
@@ -125,7 +125,7 @@ fun<T> List::<T>::pop_front(*self) -> T {
     let old_head = self.head;
     self.head = self.head.next;
     old_head.free();
-    return out;
+    ret out;
 }
 
 fun<T> List::<T>::nth(*self, idx: usize) -> T {
@@ -136,9 +136,9 @@ fun<T> Node::<T>::nth(*self, idx: usize) -> T {
     if self == null {
         check(false);
     } else if idx == 0 {
-        return self.data;
+        ret self.data;
     } else {
-        return self.next.nth(idx - 1);
+        ret self.next.nth(idx - 1);
     }
 }
 

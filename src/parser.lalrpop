@@ -120,7 +120,7 @@ pub Stmt: Stmt = {
     <let_tok: Span<"let">> <mut_tok: Span<"mut">?> <pattern: SpanBox<Pattern>> <type_name: (":" <SpanBox<Type>>)?>
         <eq_tok: Span<"=">> <expr: SpanBox<Expr>> ";" => Stmt::Let {<>},
 
-    <Span<"return">> <SpanBox<Expr>?> ";" => Stmt::Return(<>),
+    <Span<"ret">> <SpanBox<Expr>?> ";" => Stmt::Return(<>),
     <Span<"continue">> <Ident?> ";" => Stmt::Continue(<>),
     <Span<"break">> <Ident?> ";" => Stmt::Break(<>),
 
