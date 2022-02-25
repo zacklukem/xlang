@@ -3,6 +3,10 @@ name = "xlang"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
+authors = ["Zachary Mayhew <mayhew.zachary2003@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/zacklukem/xlang"
+
 
 [build-dependencies]
 lalrpop = { version = "0.19.7", features = ["lexer"],  default-features = true }
