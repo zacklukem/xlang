@@ -46,7 +46,7 @@ do
         continue
     fi
 
-    clang examples/build/compile_pass/$filename.c stl/c/xlang/check.c \
+    gcc examples/build/compile_pass/$filename.c stl/c/xlang/check.c \
           -o examples/build/compile_pass/$filename \
           -I stl/c \
           > $TMPFILE 2>&1
