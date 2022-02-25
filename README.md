@@ -120,26 +120,24 @@ This generates the following C code (ran through clang-format):
 #pragma once
 #include <xlang/default_header.h>
 
-
 typedef struct Vec_i32 Vec_i32_t;
 
 int32_t main();
-void * realloc(void *ptr, size_t size);
+void *realloc(void *ptr, size_t size);
 void free(void *ptr);
-void resize_i32(int32_t * *ptr, size_t len);
+void resize_i32(int32_t **ptr, size_t len);
 void check(bool expr);
 void Vec_push_i32(Vec_i32_t *self, int32_t data);
 size_t sizeof_i32();
-void * malloc(size_t size);
+void *malloc(size_t size);
 Vec_i32_t Vec_new_i32();
-int32_t * allocate_i32(size_t len);
+int32_t *allocate_i32(size_t len);
 
 struct Vec_i32 {
-    size_t len;
-    size_t cap;
-    int32_t *data;
+  size_t len;
+  size_t cap;
+  int32_t *data;
 };
-
 ```
 
 ```c
