@@ -1,5 +1,4 @@
 extern fun free(ptr: *void);
-extern fun panic(msg: *[]u8);
 extern fun check(expr: bool);
 
 fun hi() -> (i32, i64) {}
@@ -97,7 +96,7 @@ fun<T> Node::<T>::push_back(*self, val: T) {
 
 fun<T> List::<T>::pop_back(*self) -> T {
     if self.head == null {
-        panic("Popped on empty list");
+        check(false);
     } else if self.head.next == null {
         let out = self.head.data;
         self.head.free();
@@ -110,7 +109,7 @@ fun<T> List::<T>::pop_back(*self) -> T {
 
 fun<T> Node::<T>::pop_back(*self) -> T {
     if self.next == null {
-        panic("Popped on empty list");
+        check(false);
     } else if self.next.next == null {
         let out = self.next.data;
         self.next.free();
@@ -135,7 +134,7 @@ fun<T> List::<T>::nth(*self, idx: usize) -> T {
 
 fun<T> Node::<T>::nth(*self, idx: usize) -> T {
     if self == null {
-        panic("Out of range");
+        check(false);
     } else if idx == 0 {
         return self.data;
     } else {
