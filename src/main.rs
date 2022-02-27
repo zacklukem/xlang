@@ -72,8 +72,6 @@ fn main() {
 
     let (monos, special_types) = mono.finish();
 
-    // mono.print_instances();
-
     let header_filename = second_arg.clone() + ".h";
     let source_filename = second_arg.clone() + ".c";
 

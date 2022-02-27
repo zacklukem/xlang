@@ -293,6 +293,12 @@ pub enum StmtKind<'ty> {
         block: Box<Stmt<'ty>>,
     },
 
+    Switch {
+        expr: Box<Expr<'ty>>,
+        cases: Vec<(Box<Expr<'ty>>, Box<Stmt<'ty>>)>,
+        default: Option<Box<Stmt<'ty>>>,
+    },
+
     Labeled(String, Option<Box<Stmt<'ty>>>),
 
     Block(Vec<Stmt<'ty>>),
@@ -303,7 +309,7 @@ pub enum StmtKind<'ty> {
     Expr(Box<Expr<'ty>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Expr<'ty> {
     pub kind: ExprKind<'ty>,
     pub span: Span,
@@ -362,7 +368,7 @@ impl<'ty> Expr<'ty> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IntegerSpecifier {
     I8(i8),
     I16(i16),
@@ -378,13 +384,13 @@ pub enum IntegerSpecifier {
     Unsigned(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FloatSpecifier {
     F32(f32),
     F64(f64),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BinOp {
     Add,
     Sub,
@@ -431,7 +437,7 @@ impl From<&ast::BinOp> for BinOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AssignOp {
     Eq,
     AddEq,
@@ -460,7 +466,7 @@ impl From<&ast::AssignOp> for AssignOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UnaryOp {
     Neg,
     LogNot,
@@ -485,7 +491,7 @@ impl From<&ast::UnaryOp> for UnaryOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ExprKind<'ty> {
     Ident(String),
     GlobalIdent(Path, Vec<Ty<'ty>>),

@@ -178,8 +178,9 @@ impl Name {
 
 #[derive(Debug, Clone)]
 pub enum Pattern {
+    Variant(SpanBox<Name>, Span, SpanVec<Pattern>, Span),
     Tuple(Span, SpanVec<Pattern>, Span),
-    Ident(Ident),
+    Ident(SpanBox<Name>),
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +244,14 @@ pub enum TopStmt {
 }
 
 #[derive(Debug, Clone)]
+pub struct Arm {
+    pub bar_tok: Span,
+    pub pattern: SpanBox<Pattern>,
+    pub arrow: Span,
+    pub stmts: SpanVec<Stmt>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
     If {
         if_tok: Span,
@@ -262,6 +271,14 @@ pub enum Stmt {
         label: Option<Ident>,
         loop_tok: Span,
         block: SpanBox<Stmt>,
+    },
+
+    Case {
+        case_tok: Span,
+        expr: SpanBox<Expr>,
+        open_brace: Span,
+        arms: SpanVec<Arm>,
+        close_brace: Span,
     },
 
     ForRange {

@@ -1,7 +1,7 @@
 //! Handles pretty-printing the IR
 
 use crate::ir::*;
-use crate::ty::{PointerType, AdtType, Ty, TyKind};
+use crate::ty::{AdtType, PointerType, Ty, TyKind};
 use std::fmt::{Display, Write};
 
 fn write_type_array<'k, 'a>(
@@ -161,6 +161,23 @@ impl Display for StmtKind<'_> {
             StmtKind::Return(None) => write!(f, "return;"),
             StmtKind::Goto(label) => write!(f, "goto {};", label),
             StmtKind::Expr(expr) => write!(f, "{};", expr),
+            StmtKind::Switch {
+                expr,
+                cases,
+                default,
+            } => {
+                f.write_str("switch ")?;
+                expr.fmt(f)?;
+                f.write_str("{")?;
+                for (det, stmts) in cases {
+                    f.write_str("\n| ")?;
+                    det.fmt(f)?;
+                    f.write_str(" -> ")?;
+                    stmts.fmt(f)?;
+                }
+                f.write_str("}}")
+            }
+            _ => todo!(),
         }
     }
 }

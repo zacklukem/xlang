@@ -249,6 +249,20 @@ impl<'ty> Monomorphize<'ty> {
             Expr(expr) => {
                 self.expr(expr, ty_params);
             }
+            Switch {
+                expr,
+                cases,
+                default,
+            } => {
+                self.expr(expr, ty_params);
+                for (det, stmt) in cases {
+                    self.expr(det, ty_params);
+                    self.stmt(stmt, ty_params);
+                }
+                if let Some(default) = default {
+                    self.stmt(default, ty_params);
+                }
+            }
             Goto(_) => (),
         }
     }
@@ -310,6 +324,7 @@ impl<'ty> Monomorphize<'ty> {
                 }
             }
             Ident(_) | Integer(_) | Float(_) | String(_) | Bool(_) | Null | Err => (),
+            _ => todo!(),
         }
     }
 

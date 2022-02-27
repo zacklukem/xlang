@@ -18,8 +18,9 @@ Name: Name = {
 };
 
 Pattern: Pattern = {
+    SpanBox<Name> Span<"("> Vec0<Spanned<Pattern>, ","> Span<")"> => Pattern::Variant(<>),
     Span<"("> Vec1<Spanned<Pattern>, ","> Span<")"> => Pattern::Tuple(<>),
-    Ident => Pattern::Ident(<>),
+    SpanBox<Name> => Pattern::Ident(<>),
 };
 
 SelfType: SelfType = {
@@ -108,7 +109,15 @@ IfStmt: Stmt = {
     Block
 };
 
+Arm: Arm = {
+    <bar_tok: Span<"|">> <pattern:SpanBox<Pattern>> <arrow: Span<"->">> <stmts: Spanned<Stmt>*>
+        => Arm { <> }
+};
+
 pub Stmt: Stmt = {
+    <case_tok: Span<"case">> <expr: SpanBox<Expr>> <open_brace: Span<"{">>
+        <arms: Spanned<Arm>*> <close_brace: Span<"}">> => Stmt::Case {<>},
+
     <label: (<Ident> ":")?> <while_tok: Span<"while">> <condition: SpanBox<Expr>>
         <block: SpanBox<Block>> => Stmt::While {<>},
 

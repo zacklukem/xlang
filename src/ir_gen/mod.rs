@@ -1,5 +1,6 @@
 //! Handles generation of the IR
 
+mod ir_gen_match;
 use crate::ast;
 use crate::error_context::ErrorContext;
 use crate::intern::Int;
@@ -9,10 +10,10 @@ use crate::ty;
 use std::collections::{HashMap, VecDeque};
 use std::iter::Iterator;
 
-pub fn gen_fun_block<'ast, 'ty>(
-    module: &ir::Module<'ty>,
+pub fn gen_fun_block<'ast, 'ty, 'mg>(
+    module: &'mg ir::Module<'ty>,
     db_name: String,
-    err: &mut ErrorContext,
+    err: &'mg mut ErrorContext,
     def_id: ir::DefId,
     params: Vec<(String, ty::Ty<'ty>)>,
     return_type: ty::Ty<'ty>,
@@ -78,7 +79,7 @@ impl Scope {
     }
 }
 
-struct IrGen<'mg, 'ty> {
+struct IrGen<'ty, 'mg> {
     var_id: u32,
     module: &'mg ir::Module<'ty>,
     err: &'mg mut ErrorContext,
@@ -100,7 +101,7 @@ fn break_label(v: &String) -> String {
     format!("{}_break", v)
 }
 
-impl<'ast, 'mg, 'ty> TypeGenerator<'ast, 'ty> for IrGen<'mg, 'ty> {
+impl<'ast, 'ty, 'mg> TypeGenerator<'ast, 'ty> for IrGen<'ty, 'mg> {
     fn current_generics(&self) -> &Vec<String> {
         &self.current_generics
     }
@@ -110,7 +111,7 @@ impl<'ast, 'mg, 'ty> TypeGenerator<'ast, 'ty> for IrGen<'mg, 'ty> {
     }
 }
 
-impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
+impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
     fn variable_defs(self) -> HashMap<String, ty::Ty<'ty>> {
         self.variable_defs
     }
@@ -362,7 +363,12 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                     self.err.err("Incompatible pattern types".into(), span);
                 }
             }
-            ast::Pattern::Ident(id) => {
+            ast::Pattern::Ident(id) if matches!(id.value(), ast::Name::Ident(..)) => {
+                let id = if let ast::Name::Ident(name, _) = id.value() {
+                    name
+                } else {
+                    panic!();
+                };
                 let expr = self.coerce(
                     expr,
                     ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::I32),
@@ -379,6 +385,7 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 );
                 out.push(ir::StmtKind::Expr(Box::new(assign_expr)));
             }
+            _ => todo!(),
         }
         Ok(())
     }
@@ -476,7 +483,6 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
         }
         Ok(ir::StmtKind::Return(expr.map(Box::new)))
     }
-
     fn gen_stmt(
         &mut self,
         stmt: &'ast ast::Spanned<ast::Stmt>,
@@ -532,6 +538,8 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
                 self.gen_break_continue(false, span, label.as_ref())?
             }
             ast::Stmt::Break(span, label) => self.gen_break_continue(true, span, label.as_ref())?,
+
+            ast::Stmt::Case { expr, arms, .. } => self.gen_case(expr, arms)?,
 
             ast::Stmt::Expr(expr) => ir::StmtKind::Expr(Box::new(self.gen_expr(expr)?)),
         };
@@ -1172,12 +1180,13 @@ impl<'mg, 'ty, 'ast> IrGen<'mg, 'ty> {
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let type_name_span = type_name.span.clone();
         let (type_name, type_generics) = self.gen_path_and_generics(type_name.value())?;
-        let mut members: Vec<(String, _)> = members
-            .iter()
-            .map(|ast::Spanned { value: (id, v), .. }| {
-                Ok((id.str().into(), Box::new(self.gen_expr(v)?)))
-            })
-            .collect::<Result<Vec<_>, ModGenError>>()?;
+        let mut members: Vec<(String, _)> = {
+            let mut out = Vec::with_capacity(members.len());
+            for ast::Spanned { value: (id, v), .. } in members {
+                out.push((id.str().into(), Box::new(self.gen_expr(v)?)))
+            }
+            out
+        };
 
         let ty = if let Some(ir::Def {
             kind:

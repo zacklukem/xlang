@@ -529,6 +529,28 @@ where
                 self.expr(expr, ty_params)?;
                 write!(self.source_writer, ";")?;
             }
+            Switch {
+                expr,
+                cases,
+                default,
+            } => {
+                write!(self.source_writer, "switch (")?;
+                self.expr(expr, ty_params)?;
+                writeln!(self.source_writer, ") {{")?;
+                for (expr, stmt) in cases {
+                    write!(self.source_writer, "case ")?;
+                    self.expr(expr, ty_params)?;
+                    writeln!(self.source_writer, ":")?;
+                    self.stmt(stmt, ty_params)?;
+                    writeln!(self.source_writer, "break;")?;
+                }
+                if let Some(default) = default {
+                    writeln!(self.source_writer, "default:")?;
+                    self.stmt(stmt, ty_params)?;
+                    writeln!(self.source_writer, "break;")?;
+                }
+                write!(self.source_writer, "}}")?;
+            }
         }
         Ok(())
     }

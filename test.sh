@@ -73,7 +73,7 @@ do
     else
         FAILED=1
         echo -e "\033[31mRUN_FAIL\033[0m "
-        echo "Failure:"
+        echo "Failure ($ERR):"
         cat $TMPFILE | sed -e 's/^/    /g'
         echo
         continue
