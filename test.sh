@@ -9,7 +9,7 @@ fi
 TMPFILE=$(mktemp)
 trap 'rm -f "$TMPFILE"' EXIT
 
-NUM_TESTS=$(find examples -name "*.x" | wc -l | tr -d ' ')
+NUM_TESTS=$(find examples -name "*.xl" | wc -l | tr -d ' ')
 FAILED=0
 
 echo -e "\nrunning $NUM_TESTS integration tests"
@@ -19,9 +19,9 @@ rm -rf examples/build
 mkdir -p examples/build/compile_pass
 mkdir -p examples/build/compile_fail
 
-for file in $(find examples/compile_pass -name "*.x")
+for file in $(find examples/compile_pass -name "*.xl")
 do
-    filename=$(basename -s .x "$file")
+    filename=$(basename -s .xl "$file")
 
     printf "test $file ... "
     target/debug/xlang $file examples/build/compile_pass/$filename > $TMPFILE 2>&1
@@ -80,9 +80,9 @@ do
     fi
 done
 
-for file in $(find examples/compile_fail -name "*.x")
+for file in $(find examples/compile_fail -name "*.xl")
 do
-    filename=$(basename -s .x "$file")
+    filename=$(basename -s .xl "$file")
 
     printf "test $file ... "
     target/debug/xlang $file examples/build/compile_fail/$filename > $TMPFILE 2>&1
