@@ -23,7 +23,7 @@ pub struct CodeGen<'ty, T> {
     indent: usize,
 }
 
-fn mangle_path(path: &Path) -> String {
+pub fn mangle_path(path: &Path) -> String {
     let mut st = String::new();
     write_mangle_path(path, &mut st).unwrap();
     st
@@ -152,7 +152,7 @@ impl<'ty> Ty<'ty> {
                 path,
                 ty_params,
             }) => {
-                write!(f, "{}", path)?;
+                write!(f, "{}", mangle_path(path))?;
                 for ty in ty_params {
                     f.write_str("_")?;
                     ty.mangle_write(f)?;
@@ -567,10 +567,10 @@ where
             Call { expr, arguments }
                 if arguments.len() == 0
                     && matches!(&expr.kind,
-            GlobalIdent(Path::Terminal(name), generics)
-                if name == "sizeof" && generics.len() == 1) =>
+            GlobalIdent(Path::Namespace(ns, path), generics)
+                if ns == "mem" && matches!(path.as_ref(), Path::Terminal(name) if name == "sizeof") && generics.len() == 1) =>
             {
-                if let GlobalIdent(Path::Terminal(_), generics) = &expr.kind {
+                if let GlobalIdent(_, generics) = &expr.kind {
                     let ty = generics[0];
                     let ty = replace_generics(self.module.ty_ctx(), ty, ty_params);
                     let ty = ty.to_c_type(None);

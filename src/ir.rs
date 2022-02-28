@@ -114,6 +114,22 @@ impl Path {
         matches!(self, Terminal(_))
     }
 
+    pub fn tail(&self) -> Option<&Path> {
+        use Path::*;
+        match self {
+            Terminal(name) => None,
+            Namespace(_, next) => Some(next),
+        }
+    }
+
+    pub fn append(&self, end: Path) -> Path {
+        use Path::*;
+        match self {
+            Terminal(name) => Namespace(name.clone(), Box::new(end)),
+            Namespace(name, path) => Namespace(name.clone(), Box::new(path.append(end))),
+        }
+    }
+
     pub fn push_end(&self, end: String) -> Path {
         use Path::*;
         match self {
@@ -130,6 +146,14 @@ impl Path {
             Namespace(name, path) => {
                 Some(Namespace(name.clone(), Box::new(path.pop_end().unwrap())))
             }
+        }
+    }
+
+    pub fn first(&self) -> &String {
+        use Path::*;
+        match self {
+            Terminal(val) => val,
+            Namespace(val, _) => val,
         }
     }
 

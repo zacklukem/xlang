@@ -15,7 +15,7 @@ pub mod monomorphize;
 pub mod ty;
 pub mod ty_mangle;
 
-lalrpop_mod!(pub parser);
+lalrpop_mod!(#[allow(all)] pub parser);
 
 fn print_pass_errors_and_exit(err: &error_context::ErrorContext) {
     if err.has_errors() {
@@ -25,46 +25,99 @@ fn print_pass_errors_and_exit(err: &error_context::ErrorContext) {
 }
 
 fn main() {
+    let tyc = ty::TyCtxContainer::new();
+
+    let mut module = ir::Module::new(tyc.ctx());
+
+    let mut err = error_context::ErrorContext::new();
+
     let mut args = std::env::args();
 
     args.next();
     let first_arg = args.next().unwrap();
     let second_arg = args.next().unwrap();
 
-    let source_string = std::fs::read_to_string(first_arg).unwrap();
+    let stl_members = ["stl/check.xl", "stl/mem.xl"];
 
-    let source = std::rc::Rc::new(ast::Source::new(source_string));
+    for member in stl_members {
+        // Compile stl
+        let source_string = std::fs::read_to_string(member).unwrap();
+        let source = std::rc::Rc::new(ast::Source::new(source_string.into()));
 
-    let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
+        let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
 
-    let ast_module = match ast_module {
-        Err(lalrpop_util::ParseError::UnrecognizedToken {
-            token: (start, token, end),
-            expected,
-        }) => {
-            let expected = expected.join(" | ");
-            let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
-            source.print_msg((start, end), &msg, "Error");
-            std::process::exit(1)
-        }
-        Err(e) => {
-            println!("{:#?}", e);
-            std::process::exit(1)
-        }
-        Ok(ast_module) => ast_module,
-    };
+        let ast_module = match ast_module {
+            Err(lalrpop_util::ParseError::UnrecognizedToken {
+                token: (start, token, end),
+                expected,
+            }) => {
+                let expected = expected.join(" | ");
+                let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
+                source.print_msg((start, end), &msg, "Error");
+                std::process::exit(1)
+            }
+            Err(e) => {
+                println!("{:#?}", e);
+                std::process::exit(1)
+            }
+            Ok(ast_module) => ast_module,
+        };
 
-    let tyc = ty::TyCtxContainer::new();
+        let mod_name = &member[4..member.len() - 3];
+        println!("{:?}", mod_name);
 
-    let module = ir::Module::new(tyc.ctx());
+        // Gen module
+        let mut mod_gen = mod_gen::ModGen::new(
+            module,
+            err,
+            &ast_module,
+            ir::Path::Terminal(mod_name.into()),
+        );
+        mod_gen.run().unwrap();
+        (module, err) = mod_gen.finish();
+        print_pass_errors_and_exit(&err);
+    }
 
-    let err = error_context::ErrorContext::new();
+    {
+        let source_string = std::fs::read_to_string(first_arg).unwrap();
+        // Compile input file
+        let source = std::rc::Rc::new(ast::Source::new(source_string));
 
-    // Gen module
-    let mut mod_gen = mod_gen::ModGen::new(module, err, &ast_module);
-    mod_gen.run().unwrap();
-    let (module, err) = mod_gen.finish();
-    print_pass_errors_and_exit(&err);
+        let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
+
+        let ast_module = match ast_module {
+            Err(lalrpop_util::ParseError::UnrecognizedToken {
+                token: (start, token, end),
+                expected,
+            }) => {
+                let expected = expected.join(" | ");
+                let msg = format!(r#"Got: "{}". Expected: [{}]"#, token, expected);
+                source.print_msg((start, end), &msg, "Error");
+                std::process::exit(1)
+            }
+            Err(e) => {
+                println!("{:#?}", e);
+                std::process::exit(1)
+            }
+            Ok(ast_module) => ast_module,
+        };
+
+        let mod_name = std::path::Path::new(&second_arg)
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        // Gen module
+        let mut mod_gen = mod_gen::ModGen::new(
+            module,
+            err,
+            &ast_module,
+            ir::Path::Terminal(mod_name.into()),
+        );
+        mod_gen.run().unwrap();
+        (module, err) = mod_gen.finish();
+        print_pass_errors_and_exit(&err);
+    }
 
     // Monomorphize
     let mut mono = monomorphize::Monomorphize::new(&module);

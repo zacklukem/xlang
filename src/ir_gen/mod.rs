@@ -11,6 +11,7 @@ use std::collections::{HashMap, VecDeque};
 use std::iter::Iterator;
 
 pub fn gen_fun_block<'ast, 'ty, 'mg>(
+    usages: &'mg HashMap<String, ir::Path>,
     module: &'mg ir::Module<'ty>,
     db_name: String,
     err: &'mg mut ErrorContext,
@@ -22,6 +23,7 @@ pub fn gen_fun_block<'ast, 'ty, 'mg>(
 ) -> Result<ir::Fun<'ty>, ModGenError> {
     let (block, variable_defs) = {
         let mut ir_gen = IrGen {
+            usages,
             var_id: 0,
             module,
             err,
@@ -83,6 +85,7 @@ struct IrGen<'ty, 'mg> {
     var_id: u32,
     module: &'mg ir::Module<'ty>,
     err: &'mg mut ErrorContext,
+    usages: &'mg HashMap<String, ir::Path>,
     scope: Box<Scope>,
     /// types of variables (variable scoped)
     params: HashMap<String, ty::Ty<'ty>>,
@@ -108,6 +111,13 @@ impl<'ast, 'ty, 'mg> TypeGenerator<'ast, 'ty> for IrGen<'ty, 'mg> {
 
     fn module(&self) -> &ir::Module<'ty> {
         &self.module
+    }
+    fn mod_path(&self) -> &ir::Path {
+        todo!();
+    }
+
+    fn usages(&self) -> &HashMap<String, ir::Path> {
+        self.usages
     }
 }
 

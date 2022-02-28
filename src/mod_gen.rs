@@ -12,6 +12,8 @@ pub struct ModGen<'ast, 'ty> {
     module: ir::Module<'ty>,
     err: ErrorContext,
     current_generics: Vec<String>,
+    mod_path: ir::Path,
+    usages: HashMap<String, ir::Path>,
 }
 
 #[derive(Debug)]
@@ -22,6 +24,8 @@ pub enum ModGenError {
 pub trait TypeGenerator<'ast, 'ty> {
     fn current_generics(&self) -> &Vec<String>;
     fn module(&self) -> &ir::Module<'ty>;
+    fn mod_path(&self) -> &ir::Path;
+    fn usages(&self) -> &HashMap<String, ir::Path>;
 
     fn gen_type(&mut self, ty: &ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
         let ty = match ty.value() {
@@ -82,17 +86,40 @@ pub trait TypeGenerator<'ast, 'ty> {
         Ok(out)
     }
 
-    fn gen_path(&self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
+    fn gen_path(&self, name: &ast::Name) -> Result<ir::Path, ModGenError> {
+        let path = self.gen_path_rec(name)?;
+        let first = path.first();
+        if let Some(usage) = self.usages().get(first) {
+            Ok(usage.append(path))
+        } else {
+            Ok(path)
+        }
+    }
+
+    fn gen_path_rec(&self, name: &ast::Name) -> Result<ir::Path, ModGenError> {
         match name {
-            ast::Name::Ident(id, _) => Ok(ir::Path::Terminal(id.str().into())),
-            ast::Name::Namespace(id, _, _, next) => Ok(ir::Path::Namespace(
-                id.str().into(),
-                Box::new(self.gen_path(next.value())?),
-            )),
+            ast::Name::Ident(id, generics) => Ok(ir::Path::Terminal(id.str().into())),
+            ast::Name::Namespace(id, _, _, next) => {
+                let next = self.gen_path_rec(next.value())?;
+                Ok(ir::Path::Namespace(id.str().into(), Box::new(next)))
+            }
         }
     }
 
     fn gen_path_and_generics(
+        &mut self,
+        name: &ast::Name,
+    ) -> Result<(ir::Path, Vec<ty::Ty<'ty>>), ModGenError> {
+        let (path, generics) = self.gen_path_and_generics_rec(name)?;
+        let first = path.first();
+        if let Some(usage) = self.usages().get(first) {
+            Ok((usage.append(path), generics))
+        } else {
+            Ok((path, generics))
+        }
+    }
+
+    fn gen_path_and_generics_rec(
         &mut self,
         name: &ast::Name,
     ) -> Result<(ir::Path, Vec<ty::Ty<'ty>>), ModGenError> {
@@ -102,7 +129,7 @@ pub trait TypeGenerator<'ast, 'ty> {
                 self.gen_type_iter(generics.iter())?,
             )),
             ast::Name::Namespace(id, _, _, next) => {
-                let (next, generics) = self.gen_path_and_generics(next.value())?;
+                let (next, generics) = self.gen_path_and_generics_rec(next.value())?;
                 Ok((
                     ir::Path::Namespace(id.str().into(), Box::new(next)),
                     generics,
@@ -120,6 +147,14 @@ impl<'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'ast, 'ty> {
     fn module(&self) -> &ir::Module<'ty> {
         &self.module
     }
+
+    fn mod_path(&self) -> &ir::Path {
+        &self.mod_path
+    }
+
+    fn usages(&self) -> &HashMap<String, ir::Path> {
+        &self.usages
+    }
 }
 
 impl<'ast, 'ty> ModGen<'ast, 'ty> {
@@ -127,13 +162,50 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         module: ir::Module<'ty>,
         err: ErrorContext,
         ast_module: &'ast ast::Module,
+        mod_path: ir::Path,
     ) -> ModGen<'ast, 'ty> {
         ModGen {
             ast_module,
             module,
             err,
+            mod_path,
             current_generics: Vec::new(),
+            usages: HashMap::new(),
         }
+    }
+
+    fn gen_path_raw(&self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
+        match name {
+            ast::Name::Ident(id, _) => Ok(ir::Path::Terminal(id.str().into())),
+            ast::Name::Namespace(id, _, _, next) => Ok(ir::Path::Namespace(
+                id.str().into(),
+                Box::new(self.gen_path_raw(next.value())?),
+            )),
+        }
+    }
+
+    fn gen_def_path(&mut self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
+        let path = self.gen_path_raw(name)?;
+        if let ir::Path::Terminal(name) = &path {
+            if name == "main" {
+                return Ok(path);
+            }
+        }
+
+        let first = path.first().clone();
+
+        let full_path = self.mod_path().append(path);
+
+        if !self.usages.contains_key(&first) {
+            self.usages.insert(first, self.mod_path().clone());
+        }
+        Ok(full_path)
+    }
+
+    fn get_def_path(&mut self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
+        let path = self.gen_path_raw(name)?;
+        let full_path = self.mod_path().append(path);
+        Ok(full_path)
     }
 
     pub fn finish(self) -> (ir::Module<'ty>, ErrorContext) {
@@ -141,6 +213,13 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
     }
 
     pub fn run(&mut self) -> Result<(), ModGenError> {
+        let def = ir::Def::new(
+            ir::DefVisibility::Public,
+            ir::DefKind::Mod {
+                symbols: Default::default(),
+            },
+        );
+        self.module.declare(self.mod_path.clone(), def).unwrap();
         self.declare_types()?;
         self.define_types()?;
         self.gen_ir()?;
@@ -158,7 +237,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     name,
                     ..
                 } => {
-                    let path = self.gen_path(name.value())?;
+                    let path = self.gen_def_path(name.value())?;
                     let def = ir::Def::new(
                         if pub_tok.is_some() {
                             ir::DefVisibility::Public
@@ -180,7 +259,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                     name,
                     ..
                 } => {
-                    let path = self.gen_path(name.value())?;
+                    let path = self.gen_def_path(name.value())?;
                     let def = ir::Def::new(
                         if pub_tok.is_some() {
                             ir::DefVisibility::Public
@@ -291,7 +370,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
-        let fun_name = self.gen_path(ast_fun_name.value())?;
+        let fun_name = self.gen_def_path(ast_fun_name.value())?;
         let self_param: Option<ty::Ty<'ty>> = if self_type.is_some() {
             if fun_name.is_terminal() {
                 self.err.err(
@@ -364,7 +443,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
-        let enum_path = self.gen_path(ast_enum_name.value())?;
+        let enum_path = self.gen_def_path(ast_enum_name.value())?;
         let def_id = self.module.get_def_id_by_path(&enum_path).unwrap();
 
         let fun_ty_params = self
@@ -405,7 +484,6 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
                 .declare(fun_name, ir::Def::new(ir::DefVisibility::Public, fun_def))
                 .unwrap();
 
-            // asdf
             let ty = ty::TyKind::Tuple(types);
             let ty = self.module.ty_ctx().int(ty);
 
@@ -443,7 +521,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         self.current_generics.clear();
         self.current_generics
             .extend(type_params.iter().map(|p| p.str().into()));
-        let struct_path = self.gen_path(ast_struct_name.value())?;
+        let struct_path = self.gen_def_path(ast_struct_name.value())?;
 
         let mut sym_members = HashMap::new();
 
@@ -508,6 +586,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         let def_id = self.module.get_def_id_by_path(&path).unwrap();
 
         let body = ir_gen::gen_fun_block(
+            &self.usages,
             &self.module,
             format!("{}", path),
             &mut self.err,

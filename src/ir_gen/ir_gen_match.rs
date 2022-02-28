@@ -231,7 +231,12 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                         }
 
                         let discriminant_expr = ir::Expr::new(
-                            ir::ExprKind::Ident(format!("{}_{}_k", enum_name, variant_name)),
+                            // HACK: shouldn't codegen here
+                            ir::ExprKind::Ident(format!(
+                                "{}_{}_k",
+                                crate::codegen::mangle_path(&enum_name),
+                                variant_name
+                            )),
                             span.clone(),
                             ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::I32),
                         );

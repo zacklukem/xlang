@@ -1,0 +1,2 @@
+
+extern fun check(expr: bool);

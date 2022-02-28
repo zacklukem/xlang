@@ -1,0 +1,14 @@
+extern fun realloc(ptr: *void, size: usize) -> *void;
+extern fun malloc(size: usize) -> *void;
+
+extern fun<T> sizeof() -> usize;
+
+extern fun free(ptr: *void);
+
+fun<T> resize(ptr: **T, len: usize) {
+    *ptr = realloc(*ptr, len * sizeof::<T>()) as *T;
+}
+
+fun<T> allocate(len: usize) -> *T {
+    ret malloc(len * sizeof::<T>()) as *T;
+}
