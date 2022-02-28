@@ -9,6 +9,12 @@ pub struct TyCtxContainer<'ty> {
     ctx: TyCtxS<'ty>,
 }
 
+impl<'ty> Default for TyCtxContainer<'ty> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'ty> TyCtxContainer<'ty> {
     pub fn new() -> TyCtxContainer<'ty> {
         Self {
@@ -38,29 +44,29 @@ impl<'ty> TyCtx<'ty> {
     }
 }
 
-pub fn range_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+pub fn range_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Range(
         ctx.int(TyKind::Primitive(PrimitiveType::USize)),
     ))
 }
 
-pub fn primitive_ty<'a>(ctx: TyCtx<'a>, pt: PrimitiveType) -> Ty<'a> {
+pub fn primitive_ty(ctx: TyCtx<'_>, pt: PrimitiveType) -> Ty<'_> {
     ctx.int(TyKind::Primitive(pt))
 }
 
-pub fn void_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+pub fn void_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     primitive_ty(ctx, PrimitiveType::Void)
 }
 
-pub fn bool_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+pub fn bool_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     primitive_ty(ctx, PrimitiveType::Bool)
 }
 
-pub fn err_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+pub fn err_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Err)
 }
 
-pub fn ukn_ty<'a>(ctx: TyCtx<'a>) -> Ty<'a> {
+pub fn ukn_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Unknown)
 }
 
@@ -89,42 +95,39 @@ pub enum PrimitiveType {
 
 impl PrimitiveType {
     pub fn is_numeric(&self) -> bool {
-        match self {
+        matches!(
+            self,
             PrimitiveType::I8
-            | PrimitiveType::I16
-            | PrimitiveType::I32
-            | PrimitiveType::I64
-            | PrimitiveType::U8
-            | PrimitiveType::U16
-            | PrimitiveType::U32
-            | PrimitiveType::U64
-            | PrimitiveType::USize
-            | PrimitiveType::Integer
-            | PrimitiveType::F32
-            | PrimitiveType::F64 => true,
-            _ => false,
-        }
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::USize
+                | PrimitiveType::Integer
+                | PrimitiveType::F32
+                | PrimitiveType::F64
+        )
     }
     pub fn is_float(&self) -> bool {
-        match self {
-            PrimitiveType::F32 | PrimitiveType::F64 => true,
-            _ => false,
-        }
+        matches!(self, PrimitiveType::F32 | PrimitiveType::F64)
     }
     pub fn is_integral(&self) -> bool {
-        match self {
+        matches!(
+            self,
             PrimitiveType::I8
-            | PrimitiveType::I16
-            | PrimitiveType::I32
-            | PrimitiveType::I64
-            | PrimitiveType::U8
-            | PrimitiveType::U16
-            | PrimitiveType::U32
-            | PrimitiveType::U64
-            | PrimitiveType::USize
-            | PrimitiveType::Integer => true,
-            _ => false,
-        }
+                | PrimitiveType::I16
+                | PrimitiveType::I32
+                | PrimitiveType::I64
+                | PrimitiveType::U8
+                | PrimitiveType::U16
+                | PrimitiveType::U32
+                | PrimitiveType::U64
+                | PrimitiveType::USize
+                | PrimitiveType::Integer
+        )
     }
 }
 
@@ -208,17 +211,11 @@ impl<'ty> Ty<'ty> {
 
     /// True if this type is an integer or floating point type
     pub fn is_numeric(self) -> bool {
-        match self.0 .0 {
-            TyKind::Primitive(x) => x.is_numeric(),
-            _ => false,
-        }
+        matches!(self.0 .0, TyKind::Primitive(x) if x.is_numeric())
     }
 
     pub fn is_integer_ukn(self) -> bool {
-        match self.0 .0 {
-            TyKind::Primitive(PrimitiveType::Integer) => true,
-            _ => false,
-        }
+        matches!(self.0 .0, TyKind::Primitive(PrimitiveType::Integer))
     }
 }
 

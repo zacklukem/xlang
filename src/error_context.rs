@@ -2,12 +2,14 @@
 
 use crate::ast;
 
+#[derive(Debug)]
 struct Error {
     kind: MsgKind,
     msg: String,
     span: ast::Span,
 }
 
+#[derive(Debug, Default)]
 pub struct ErrorContext {
     errors: Vec<Error>,
 }
@@ -20,10 +22,6 @@ pub enum MsgKind {
 }
 
 impl ErrorContext {
-    pub fn new() -> ErrorContext {
-        ErrorContext { errors: Vec::new() }
-    }
-
     pub fn print_all(&self) {
         for error in &self.errors {
             error
@@ -39,6 +37,7 @@ impl ErrorContext {
     pub fn emit(&mut self, kind: MsgKind, msg: String, span: &ast::Span) {
         let span = span.clone();
         self.errors.push(Error { kind, msg, span });
+        panic!()
     }
 
     pub fn err(&mut self, msg: String, span: &ast::Span) {

@@ -5,6 +5,7 @@ use crate::error_context::ErrorContext;
 use crate::ir;
 use crate::ir_gen;
 use crate::ty;
+use std::collections::hash_map;
 use std::collections::HashMap;
 
 pub struct ModGen<'ast, 'ty> {
@@ -22,7 +23,7 @@ pub enum ModGenError {
 }
 
 pub trait TypeGenerator<'ast, 'ty> {
-    fn current_generics(&self) -> &Vec<String>;
+    fn current_generics(&self) -> &[String];
     fn module(&self) -> &ir::Module<'ty>;
     fn mod_path(&self) -> &ir::Path;
     fn usages(&self) -> &HashMap<String, ir::Path>;
@@ -98,7 +99,7 @@ pub trait TypeGenerator<'ast, 'ty> {
 
     fn gen_path_rec(&self, name: &ast::Name) -> Result<ir::Path, ModGenError> {
         match name {
-            ast::Name::Ident(id, generics) => Ok(ir::Path::Terminal(id.str().into())),
+            ast::Name::Ident(id, _) => Ok(ir::Path::Terminal(id.str().into())),
             ast::Name::Namespace(id, _, _, next) => {
                 let next = self.gen_path_rec(next.value())?;
                 Ok(ir::Path::Namespace(id.str().into(), Box::new(next)))
@@ -140,7 +141,7 @@ pub trait TypeGenerator<'ast, 'ty> {
 }
 
 impl<'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'ast, 'ty> {
-    fn current_generics(&self) -> &Vec<String> {
+    fn current_generics(&self) -> &[String] {
         &self.current_generics
     }
 
@@ -196,15 +197,10 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
 
         let full_path = self.mod_path().append(path);
 
-        if !self.usages.contains_key(&first) {
-            self.usages.insert(first, self.mod_path().clone());
+        if let hash_map::Entry::Vacant(e) = self.usages.entry(first) {
+            e.insert(self.mod_path.clone());
         }
-        Ok(full_path)
-    }
 
-    fn get_def_path(&mut self, name: &'ast ast::Name) -> Result<ir::Path, ModGenError> {
-        let path = self.gen_path_raw(name)?;
-        let full_path = self.mod_path().append(path);
         Ok(full_path)
     }
 
@@ -349,7 +345,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             }
             _ => {
                 self.err.err(
-                    format!("Functions with self type must be members of struct namespace"),
+                    "Functions with self type must be members of struct namespace".into(),
                     span,
                 );
                 None
@@ -362,7 +358,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         &mut self,
         external: bool,
         pub_tok: &'ast Option<ast::Span>,
-        type_params: &'ast Vec<ast::Span>,
+        type_params: &'ast [ast::Span],
         ast_fun_name: &'ast ast::Spanned<ast::Name>,
         (self_type, params): &'ast ast::FunParams,
         return_type: &'ast Option<ast::SpanBox<ast::Type>>,
@@ -374,7 +370,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         let self_param: Option<ty::Ty<'ty>> = if self_type.is_some() {
             if fun_name.is_terminal() {
                 self.err.err(
-                    format!("Functions with self type must be members of struct namespace"),
+                    "Functions with self type must be members of struct namespace".into(),
                     &ast_fun_name.span,
                 );
                 None
@@ -437,8 +433,8 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
     fn define_enum(
         &mut self,
         ast_enum_name: &'ast ast::Spanned<ast::Name>,
-        type_params: &'ast Vec<ast::Span>,
-        variants: &'ast ast::SpanVec<(ast::Ident, ast::SpanVec<ast::Type>)>,
+        type_params: &'ast [ast::Span],
+        variants: &'ast ast::SpanSlice<(ast::Ident, ast::SpanVec<ast::Type>)>,
     ) -> Result<(), ModGenError> {
         self.current_generics.clear();
         self.current_generics
@@ -488,16 +484,29 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             let ty = self.module.ty_ctx().int(ty);
 
             let name = variant_name.str().into();
-            if sym_variants.contains_key(&name) {
-                self.err.err(
+            // if sym_variants.contains_key(&name) {
+            //     self.err.err(
+            //         format!(
+            //             "The enum {:?} already contains a variant named {}",
+            //             ast_enum_name.value, name
+            //         ),
+            //         &variant_name.span,
+            //     )
+            // } else {
+            //     sym_variants.insert(name, ty);
+            // }
+            match sym_variants.entry(name) {
+                hash_map::Entry::Vacant(e) => {
+                    e.insert(ty);
+                }
+                hash_map::Entry::Occupied(e) => self.err.err(
                     format!(
                         "The enum {:?} already contains a variant named {}",
-                        ast_enum_name.value, name
+                        ast_enum_name.value,
+                        e.key()
                     ),
                     &variant_name.span,
-                )
-            } else {
-                sym_variants.insert(name, ty);
+                ),
             }
         }
 
@@ -515,8 +524,8 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
     fn define_struct(
         &mut self,
         ast_struct_name: &'ast ast::Spanned<ast::Name>,
-        type_params: &'ast Vec<ast::Span>,
-        members: &'ast ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Type>)>,
+        type_params: &'ast [ast::Span],
+        members: &'ast ast::SpanSlice<(ast::Ident, ast::SpanBox<ast::Type>)>,
     ) -> Result<(), ModGenError> {
         self.current_generics.clear();
         self.current_generics
@@ -529,16 +538,18 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             let (field_name, field_type) = &spanned_member.value;
             let ty = self.gen_type(field_type.as_ref())?;
             let name = field_name.str().into();
-            if sym_members.contains_key(&name) {
-                self.err.err(
+            match sym_members.entry(name) {
+                hash_map::Entry::Vacant(e) => {
+                    e.insert(ty);
+                }
+                hash_map::Entry::Occupied(e) => self.err.err(
                     format!(
                         "The struct {:?} already contains a member named {}",
-                        ast_struct_name.value, name
+                        ast_struct_name.value,
+                        e.key()
                     ),
                     &field_name.span,
-                )
-            } else {
-                sym_members.insert(name, ty);
+                ),
             }
         }
 
@@ -554,12 +565,9 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
 
     fn gen_ir(&mut self) -> Result<(), ModGenError> {
         for stmt in &self.ast_module.top_stmts {
-            match &stmt.value {
-                ast::TopStmt::Fun { name, body, .. } => {
-                    let path = self.gen_path(name.value())?;
-                    self.gen_fun_ir(path, body)?;
-                }
-                _ => (),
+            if let ast::TopStmt::Fun { name, body, .. } = &stmt.value {
+                let path = self.gen_path(name.value())?;
+                self.gen_fun_ir(path, body)?;
             }
         }
         Ok(())

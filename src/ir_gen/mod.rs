@@ -10,6 +10,7 @@ use crate::ty;
 use std::collections::{HashMap, VecDeque};
 use std::iter::Iterator;
 
+#[allow(clippy::too_many_arguments)]
 pub fn gen_fun_block<'ast, 'ty, 'mg>(
     usages: &'mg HashMap<String, ir::Path>,
     module: &'mg ir::Module<'ty>,
@@ -36,11 +37,7 @@ pub fn gen_fun_block<'ast, 'ty, 'mg>(
             current_generics,
         };
         let body = ir_gen.gen_fun_block(fun)?;
-        let variable_defs = ir_gen
-            .variable_defs()
-            .into_iter()
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect();
+        let variable_defs = ir_gen.variable_defs().into_iter().collect();
         (body, variable_defs)
     };
     Ok(ir::Fun {
@@ -66,7 +63,7 @@ impl Scope {
         }
     }
 
-    fn resolve(&self, name: &String) -> Option<&String> {
+    fn resolve(&self, name: &str) -> Option<&String> {
         match self.variables.get(name) {
             Some(v) => Some(v),
             None => match &self.parent {
@@ -96,21 +93,21 @@ struct IrGen<'ty, 'mg> {
     current_generics: Vec<String>,
 }
 
-fn continue_label(v: &String) -> String {
+fn continue_label(v: &str) -> String {
     format!("{}_continue", v)
 }
 
-fn break_label(v: &String) -> String {
+fn break_label(v: &str) -> String {
     format!("{}_break", v)
 }
 
 impl<'ast, 'ty, 'mg> TypeGenerator<'ast, 'ty> for IrGen<'ty, 'mg> {
-    fn current_generics(&self) -> &Vec<String> {
+    fn current_generics(&self) -> &[String] {
         &self.current_generics
     }
 
     fn module(&self) -> &ir::Module<'ty> {
-        &self.module
+        self.module
     }
     fn mod_path(&self) -> &ir::Path {
         todo!();
@@ -142,12 +139,12 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         self.scope = parent.unwrap();
     }
 
-    fn declare_var(&mut self, block_scope_name: &String, ty: ty::Ty<'ty>) -> String {
+    fn declare_var(&mut self, block_scope_name: &str, ty: ty::Ty<'ty>) -> String {
         let id = self.get_var_id();
         let fun_scope_name = format!("{}_{}", block_scope_name, id);
         self.variable_defs.insert(fun_scope_name.clone(), ty);
         self.scope
-            .insert(block_scope_name.clone(), fun_scope_name.clone());
+            .insert(block_scope_name.into(), fun_scope_name.clone());
         fun_scope_name
     }
 
@@ -163,11 +160,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         self.label_next = Some(label);
     }
 
-    fn replace_generics(
-        &self,
-        ty: ty::Ty<'ty>,
-        generics: &Vec<(String, ty::Ty<'ty>)>,
-    ) -> ty::Ty<'ty> {
+    fn replace_generics(&self, ty: ty::Ty<'ty>, generics: &[(String, ty::Ty<'ty>)]) -> ty::Ty<'ty> {
         crate::generics::replace_generics(self.module.ty_ctx(), ty, generics)
     }
 
@@ -175,10 +168,10 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
     fn resolve_value(
         &self,
         name: &ir::Path,
-        generics: &Vec<ty::Ty<'ty>>,
+        generics: &[ty::Ty<'ty>],
     ) -> Option<(ty::Ty<'ty>, Option<String>)> {
         if let ir::Path::Terminal(id) = name {
-            if let Some(var) = self.scope.resolve(&id) {
+            if let Some(var) = self.scope.resolve(id) {
                 return self
                     .variable_defs
                     .get(var)
@@ -199,7 +192,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 ..
             }) => {
                 assert_eq!(ty_params.len(), generics.len());
-                let params = params.iter().map(|(_, t)| *t).collect();
+                let params = params.iter().map(|(_, t)| *t).collect::<Vec<_>>();
                 // TODO: resolve t-params
                 Some((
                     self.replace_generics(
@@ -207,8 +200,8 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                             .ty_ctx()
                             .int(ty::TyKind::Fun(params, *return_type)),
                         &Iterator::zip(ty_params.iter(), generics.iter())
-                            .map(|(a, b)| (a.clone(), b.clone()))
-                            .collect(),
+                            .map(|(a, b)| (a.clone(), *b))
+                            .collect::<Vec<_>>(),
                     ),
                     None,
                 ))
@@ -237,7 +230,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
 
     fn gen_block(
         &mut self,
-        body: &'ast ast::SpanVec<ast::Stmt>,
+        body: &'ast ast::SpanSlice<ast::Stmt>,
         close_brace: &ast::Span,
     ) -> Result<ir::StmtKind<'ty>, ModGenError> {
         self.open_scope();
@@ -345,14 +338,14 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
     ) -> Result<(), ModGenError> {
         match pattern.value() {
             ast::Pattern::Tuple(_, patterns, _) => {
-                let global_var_name = self.declare_hidden_var(ty.clone());
+                let global_var_name = self.declare_hidden_var(ty);
                 let lhs_expr = ir::ExprKind::Ident(global_var_name.clone());
-                let lhs_expr = ir::Expr::new(lhs_expr, span.clone(), ty.clone())
-                    .lhs_expr(self.module.ty_ctx());
+                let lhs_expr =
+                    ir::Expr::new(lhs_expr, span.clone(), ty).lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
                     ir::ExprKind::Assign(Box::new(lhs_expr), ir::AssignOp::Eq, Box::new(expr)),
                     span.clone(),
-                    ty.clone(),
+                    ty,
                 );
                 out.push(ir::StmtKind::Expr(Box::new(assign_expr)));
 
@@ -362,12 +355,12 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                     }
                     for (i, (pattern, pat_ty)) in patterns.iter().zip(tys.iter()).enumerate() {
                         let access_expr = ir::ExprKind::Ident(global_var_name.clone());
-                        let access_expr = ir::Expr::new(access_expr, span.clone(), ty.clone());
+                        let access_expr = ir::Expr::new(access_expr, span.clone(), ty);
 
                         let expr = ir::ExprKind::Dot(Box::new(access_expr), format!("_{}", i));
-                        let expr = ir::Expr::new(expr, span.clone(), pat_ty.clone());
+                        let expr = ir::Expr::new(expr, span.clone(), *pat_ty);
 
-                        self.gen_let_stmt_patterned(out, span, pattern, pat_ty.clone(), expr)?;
+                        self.gen_let_stmt_patterned(out, span, pattern, *pat_ty, expr)?;
                     }
                 } else {
                     self.err.err("Incompatible pattern types".into(), span);
@@ -384,10 +377,10 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                     ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::I32),
                 )?;
                 let ty = expr.ty();
-                let global_var_name = self.declare_var(&id.str().into(), ty.clone());
+                let global_var_name = self.declare_var(id.str(), ty);
                 let lhs_expr = ir::ExprKind::Ident(global_var_name);
-                let lhs_expr = ir::Expr::new(lhs_expr, id.span.clone(), ty.clone())
-                    .lhs_expr(self.module.ty_ctx());
+                let lhs_expr =
+                    ir::Expr::new(lhs_expr, id.span.clone(), ty).lhs_expr(self.module.ty_ctx());
                 let assign_expr = ir::Expr::new(
                     ir::ExprKind::Assign(Box::new(lhs_expr), ir::AssignOp::Eq, Box::new(expr)),
                     span.clone(),
@@ -421,7 +414,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         let ty = if let Some(_ty) = ty {
             todo!("Check expr - ty equality");
         } else {
-            expr.ty().clone()
+            expr.ty()
         };
         self.gen_let_stmt_patterned(&mut stmts, span, pattern, ty, expr)?;
 
@@ -458,9 +451,9 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 label
             }
         } else {
-            let label = self.continue_break_label.last().map(map_fn);
+            let label = self.continue_break_label.last().map(|v| map_fn(v));
             if let Some(label) = label {
-                label.clone()
+                label
             } else {
                 self.err
                     .err("You must be in a loop to break or continue".into(), span);
@@ -479,7 +472,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
             .map(|e| self.gen_expr_coerce(e, self.return_type))
             .transpose()?;
         let ty = match &expr {
-            Some(e) => e.ty().clone(),
+            Some(e) => e.ty(),
             None => ty::void_ty(self.module.ty_ctx()),
         };
         if ty != self.return_type {
@@ -667,7 +660,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
     fn gen_tuple_expr(
         &mut self,
         span: &ast::Span,
-        values: &'ast ast::SpanVec<ast::Expr>,
+        values: &'ast ast::SpanSlice<ast::Expr>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let values = self.gen_expr_iter(values.iter())?;
 
@@ -688,7 +681,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         rhs: &ast::Spanned<ast::Expr>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let lhs = self.gen_expr(lhs)?;
-        let lhs_ty = lhs.ty().clone();
+        let lhs_ty = lhs.ty();
         let lhs = lhs.lhs_expr(self.module.ty_ctx());
         let op = op.value().into();
         let rhs = self.gen_expr_coerce(rhs, lhs_ty)?;
@@ -766,7 +759,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 self.err.err("Incompatible types".into(), span);
                 ty::err_ty(self.module.ty_ctx())
             }
-            _ => lhs.ty().clone(),
+            _ => lhs.ty(),
         };
 
         let expr = ir::ExprKind::Binary(Box::new(lhs), op, Box::new(rhs));
@@ -784,7 +777,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         let rhs = self.gen_expr(rhs)?;
 
         let ty = match op {
-            ir::UnaryOp::Neg | ir::UnaryOp::BitNot if rhs.ty().is_numeric() => rhs.ty().clone(),
+            ir::UnaryOp::Neg | ir::UnaryOp::BitNot if rhs.ty().is_numeric() => rhs.ty(),
             ir::UnaryOp::Neg | ir::UnaryOp::BitNot => {
                 self.err.err("Incompatible types".into(), span);
                 ty::err_ty(self.module.ty_ctx())
@@ -829,7 +822,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         let rhs: String = rhs.str().into();
 
         // Dereferencing
-        while let ty::Ty(Int(ty::TyKind::Pointer(_mutable, ty))) = lhs.ty().clone() {
+        while let ty::Ty(Int(ty::TyKind::Pointer(_mutable, ty))) = lhs.ty() {
             lhs = ir::Expr::new(
                 ir::ExprKind::Unary(ir::UnaryOp::Deref, Box::new(lhs)),
                 span.clone(),
@@ -874,8 +867,8 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
 
                                 let typ_iter =
                                     Iterator::zip(fun_ty_params.iter(), instance_ty_params.iter())
-                                        .map(|(a, b)| (a.clone(), b.clone()))
-                                        .collect();
+                                        .map(|(a, b)| (a.clone(), *b))
+                                        .collect::<Vec<_>>();
 
                                 let params = params
                                     .iter()
@@ -911,7 +904,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                         let generics =
                             Iterator::zip(struct_ty_params.iter(), instance_ty_params.iter())
                                 .map(|(a, b)| (a.clone(), *b))
-                                .collect();
+                                .collect::<Vec<_>>();
                         self.replace_generics(*ty, &generics)
                     } else {
                         self.err.err("Field not found in struct".into(), span);
@@ -989,7 +982,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         }
 
         let ty = if then_expr.ty() == else_expr.ty() {
-            then_expr.ty().clone()
+            then_expr.ty()
         } else {
             self.err.err(
                 "If and else value types don't match".into(),
@@ -1028,9 +1021,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         }
         macro_rules! check_type {
             ($e: expr) => {
-                if let ty::TyKind::Primitive(ty::PrimitiveType::USize) = $e.0.0 {
-                    ()
-                } else {
+                if matches!($e.0.0, ty::TyKind::Primitive(ty::PrimitiveType::USize)) {
                     self.err.err("Range values must be usize".into(), span);
                 }
             };
@@ -1064,7 +1055,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         &mut self,
         span: &ast::Span,
         expr: &ast::Spanned<ast::Expr>,
-        arguments: &ast::SpanVec<ast::Expr>,
+        arguments: &ast::SpanSlice<ast::Expr>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let mut expr = self.gen_expr(expr)?;
 
@@ -1154,7 +1145,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
     fn gen_array_expr(
         &mut self,
         span: &ast::Span,
-        members: &ast::SpanVec<ast::Expr>,
+        members: &ast::SpanSlice<ast::Expr>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let members = self.gen_expr_iter(members.iter())?;
 
@@ -1186,7 +1177,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         &mut self,
         span: &ast::Span,
         type_name: &ast::Spanned<ast::Name>,
-        members: &ast::SpanVec<(ast::Ident, ast::SpanBox<ast::Expr>)>,
+        members: &ast::SpanSlice<(ast::Ident, ast::SpanBox<ast::Expr>)>,
     ) -> Result<ir::Expr<'ty>, ModGenError> {
         let type_name_span = type_name.span.clone();
         let (type_name, type_generics) = self.gen_path_and_generics(type_name.value())?;
@@ -1282,7 +1273,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 let ty = self
                     .module
                     .ty_ctx()
-                    .int(ty::TyKind::Pointer(ptr_kind.clone(), inner_ty.clone()));
+                    .int(ty::TyKind::Pointer(ptr_kind.clone(), *inner_ty));
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);
                 let expr = ir::Expr::new(expr, expr_span, ty);
                 Ok(expr)
@@ -1296,7 +1287,7 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 let ty = self
                     .module
                     .ty_ctx()
-                    .int(ty::TyKind::Pointer(ptr_kind.clone(), inner_ty.clone()));
+                    .int(ty::TyKind::Pointer(ptr_kind.clone(), *inner_ty));
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);
                 let expr = ir::Expr::new(expr, expr_span, ty);
                 Ok(expr)

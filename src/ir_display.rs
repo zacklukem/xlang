@@ -6,7 +6,7 @@ use std::fmt::{Display, Write};
 
 fn write_type_array<'k, 'a>(
     f: &mut std::fmt::Formatter<'_>,
-    arr: &'k Vec<Ty<'a>>,
+    arr: &'k [Ty<'a>],
 ) -> std::fmt::Result {
     for (i, ty) in arr.iter().enumerate() {
         ty.fmt(f)?;
@@ -17,7 +17,7 @@ fn write_type_array<'k, 'a>(
     Ok(())
 }
 
-pub fn type_array_str<'k, 'a>(arr: &'k Vec<Ty<'a>>) -> String {
+pub fn type_array_str(arr: &[Ty<'_>]) -> String {
     let mut out = String::new();
     for (i, ty) in arr.iter().enumerate() {
         let ty = format!("{}", *ty);
@@ -38,7 +38,7 @@ impl Display for Ty<'_> {
 impl Display for TyKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TyKind::Param(p) => f.write_str(&p),
+            TyKind::Param(p) => f.write_str(p),
             TyKind::Primitive(pt) => write!(f, "{}", pt),
             TyKind::Adt(AdtType {
                 path, ty_params, ..
@@ -75,7 +75,7 @@ impl Display for TyKind<'_> {
 
 impl std::fmt::Debug for Fun<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "fun {}\n", self.db_name)?;
+        writeln!(f, "fun {}", self.db_name)?;
 
         for (name, ty) in &self.variable_defs {
             writeln!(f, "let {}: {}", name, ty)?;
@@ -138,7 +138,7 @@ impl Display for StmtKind<'_> {
             ),
 
             StmtKind::Labeled(label, Some(stmt)) => write!(f, "{}:\n{}", label, stmt),
-            StmtKind::Labeled(label, None) => write!(f, "{}:\n", label),
+            StmtKind::Labeled(label, None) => writeln!(f, "{}:", label),
 
             StmtKind::Block(stmts) => {
                 f.write_str("{\n")?;
@@ -175,9 +175,12 @@ impl Display for StmtKind<'_> {
                     f.write_str(" -> ")?;
                     stmts.fmt(f)?;
                 }
+                if let Some(stmts) = default {
+                    f.write_str("\n| _ ->")?;
+                    stmts.fmt(f)?;
+                }
                 f.write_str("}}")
             }
-            _ => todo!(),
         }
     }
 }
@@ -274,7 +277,7 @@ impl Display for UnaryOp {
     }
 }
 
-fn write_expr_array(f: &mut std::fmt::Formatter<'_>, arr: &Vec<Expr>) -> std::fmt::Result {
+fn write_expr_array(f: &mut std::fmt::Formatter<'_>, arr: &[Expr]) -> std::fmt::Result {
     for (i, ty) in arr.iter().enumerate() {
         ty.fmt(f)?;
         if i != arr.len() - 1 {
@@ -288,7 +291,7 @@ impl Display for ExprKind<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExprKind::Null => f.write_str("null"),
-            ExprKind::Ident(name) => f.write_str(&name),
+            ExprKind::Ident(name) => f.write_str(name),
 
             ExprKind::GlobalIdent(val, generics) => {
                 val.fmt(f)?;
@@ -301,7 +304,7 @@ impl Display for ExprKind<'_> {
             }
             ExprKind::Integer(val) => val.fmt(f),
             ExprKind::Float(val) => val.fmt(f),
-            ExprKind::String(string) => f.write_str(&string),
+            ExprKind::String(string) => f.write_str(string),
             ExprKind::Bool(true) => f.write_str("true"),
             ExprKind::Bool(false) => f.write_str("false"),
             ExprKind::LhsExpr(expr) => write!(f, "/*lhs*/({})", expr),

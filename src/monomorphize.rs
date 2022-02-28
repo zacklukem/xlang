@@ -64,7 +64,7 @@ impl<'ty> Monomorphize<'ty> {
         }
     }
 
-    pub fn mono_def_id(&mut self, def_id: DefId, ty_params_types: &Vec<Ty<'ty>>) {
+    pub fn mono_def_id(&mut self, def_id: DefId, ty_params_types: &[Ty<'ty>]) {
         match &self.module.get_def_by_id(def_id).kind {
             DefKind::Fun {
                 ty_params,
@@ -129,8 +129,8 @@ impl<'ty> Monomorphize<'ty> {
                         assert_eq!(named_ty_params.len(), passed_ty_params.len());
                         self.struct_def(
                             *def_id,
-                            &named_ty_params,
-                            &passed_ty_params,
+                            named_ty_params,
+                            passed_ty_params,
                             members,
                             symbols,
                         );
@@ -143,8 +143,8 @@ impl<'ty> Monomorphize<'ty> {
                         assert_eq!(named_ty_params.len(), passed_ty_params.len());
                         self.enum_def(
                             *def_id,
-                            &named_ty_params,
-                            &passed_ty_params,
+                            named_ty_params,
+                            passed_ty_params,
                             variants,
                             symbols,
                         );
@@ -162,21 +162,21 @@ impl<'ty> Monomorphize<'ty> {
         &mut self,
         external: ExternKind,
         def_id: DefId,
-        ty_params_names: &Vec<String>,
-        ty_params_types: &Vec<Ty<'ty>>,
-        params: &Vec<(String, Ty<'ty>)>,
+        ty_params_names: &[String],
+        ty_params_types: &[Ty<'ty>],
+        params: &[(String, Ty<'ty>)],
         return_type: &Ty<'ty>,
     ) {
         if self
             .monos
-            .insert(DefInstance::new(def_id, ty_params_types.clone()))
+            .insert(DefInstance::new(def_id, ty_params_types.into()))
         {
             assert_eq!(ty_params_names.len(), ty_params_types.len());
             let ty_params = Iterator::zip(
                 ty_params_names.iter().cloned(),
                 ty_params_types.iter().cloned(),
             )
-            .collect();
+            .collect::<Vec<_>>();
             let return_type = replace_generics(self.module.ty_ctx(), *return_type, &ty_params);
             let params_iter = params
                 .iter()
@@ -192,7 +192,7 @@ impl<'ty> Monomorphize<'ty> {
         }
     }
 
-    pub fn fun_body(&mut self, def_id: DefId, ty_params: &Vec<(String, Ty<'ty>)>) {
+    pub fn fun_body(&mut self, def_id: DefId, ty_params: &[(String, Ty<'ty>)]) {
         let fun = self.module.functions.get(&def_id).unwrap();
         for (_, ty) in &fun.variable_defs {
             let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);
@@ -202,7 +202,7 @@ impl<'ty> Monomorphize<'ty> {
         self.stmt(&fun.block, ty_params);
     }
 
-    pub fn stmt(&mut self, stmt: &Stmt<'ty>, ty_params: &Vec<(String, Ty<'ty>)>) {
+    pub fn stmt(&mut self, stmt: &Stmt<'ty>, ty_params: &[(String, Ty<'ty>)]) {
         use StmtKind::*;
         match &stmt.kind {
             If {
@@ -267,7 +267,7 @@ impl<'ty> Monomorphize<'ty> {
         }
     }
 
-    pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &Vec<(String, Ty<'ty>)>) {
+    pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &[(String, Ty<'ty>)]) {
         use ExprKind::*;
         let ty = replace_generics(self.module.ty_ctx(), expr.ty(), ty_params);
         self.mono_ty(ty);
@@ -294,7 +294,7 @@ impl<'ty> Monomorphize<'ty> {
                 let generics = generics
                     .iter()
                     .map(|ty| replace_generics(self.module.ty_ctx(), *ty, ty_params))
-                    .collect();
+                    .collect::<Vec<_>>();
                 self.mono_def_id(def_id, &generics);
             }
             Ternary {
@@ -324,28 +324,27 @@ impl<'ty> Monomorphize<'ty> {
                 }
             }
             Ident(_) | Integer(_) | Float(_) | String(_) | Bool(_) | Null | Err => (),
-            _ => todo!(),
         }
     }
 
     pub fn enum_def(
         &mut self,
         def_id: DefId,
-        ty_params_names: &Vec<String>,
-        ty_params_types: &Vec<Ty<'ty>>,
+        ty_params_names: &[String],
+        ty_params_types: &[Ty<'ty>],
         variants: &HashMap<String, Ty<'ty>>,
         _symbols: &HashMap<String, DefId>,
     ) {
         if self
             .monos
-            .insert(DefInstance::new(def_id, ty_params_types.clone()))
+            .insert(DefInstance::new(def_id, ty_params_types.into()))
         {
             assert_eq!(ty_params_names.len(), ty_params_types.len());
             let ty_params = Iterator::zip(
                 ty_params_names.iter().cloned(),
                 ty_params_types.iter().cloned(),
             )
-            .collect();
+            .collect::<Vec<_>>();
 
             let variants_iter = variants
                 .values()
@@ -360,21 +359,21 @@ impl<'ty> Monomorphize<'ty> {
     pub fn struct_def(
         &mut self,
         def_id: DefId,
-        ty_params_names: &Vec<String>,
-        ty_params_types: &Vec<Ty<'ty>>,
+        ty_params_names: &[String],
+        ty_params_types: &[Ty<'ty>],
         members: &HashMap<String, Ty<'ty>>,
         _symbols: &HashMap<String, DefId>,
     ) {
         if self
             .monos
-            .insert(DefInstance::new(def_id, ty_params_types.clone()))
+            .insert(DefInstance::new(def_id, ty_params_types.into()))
         {
             assert_eq!(ty_params_names.len(), ty_params_types.len());
             let ty_params = Iterator::zip(
                 ty_params_names.iter().cloned(),
                 ty_params_types.iter().cloned(),
             )
-            .collect();
+            .collect::<Vec<_>>();
 
             let members_iter = members
                 .values()

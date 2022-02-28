@@ -3,7 +3,7 @@ use crate::ty::{AdtType, Ty, TyCtx, TyKind};
 pub fn replace_generics<'ty>(
     ctx: TyCtx<'ty>,
     ty: Ty<'ty>,
-    generics: &Vec<(String, Ty<'ty>)>,
+    generics: &[(String, Ty<'ty>)],
 ) -> Ty<'ty> {
     use TyKind::*;
 

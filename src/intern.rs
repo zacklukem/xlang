@@ -41,6 +41,15 @@ where
     }
 }
 
+impl<'a, T> Default for Arena<T>
+where
+    T: Hash + Eq,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Must use an arena to construct.  In type context, use TyCtx::int to construct
 #[derive(Debug)]
 pub struct Int<'a, T>(pub &'a T);

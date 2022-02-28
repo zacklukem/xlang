@@ -9,15 +9,9 @@ enum CasePattern<'ty> {
     Ident(ty::Ty<'ty>, String),
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-enum PatternDiscriminant {
-    Variant(ir::Path, String),
-    Ident(String),
-}
-
 impl<'ty, 'mg> IrGen<'ty, 'mg> {
     fn to_case_pattern(
-        &mut self,
+        &self,
         ty: ty::Ty<'ty>,
         pat: &ast::Spanned<ast::Pattern>,
     ) -> Result<CasePattern<'ty>, ModGenError> {
@@ -54,7 +48,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                     .iter()
                     .cloned()
                     .zip(ty_param_tys.iter().cloned())
-                    .collect();
+                    .collect::<Vec<_>>();
                 let ty = replace_generics(self.module.ty_ctx(), ty, &generics);
                 // ty_param
                 let enum_name = name.pop_end().unwrap();
@@ -135,7 +129,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
     pub fn gen_case(
         &mut self,
         expr: &ast::Spanned<ast::Expr>,
-        arms: &ast::SpanVec<ast::Arm>,
+        arms: &ast::SpanSlice<ast::Arm>,
     ) -> Result<ir::StmtKind<'ty>, ModGenError> {
         let expr = self.gen_expr(expr)?;
         let span = expr.span().clone();
@@ -173,7 +167,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                     if let CasePattern::Tuple(ty, members) = inner.as_ref() {
                         let mut stmts = Vec::new();
                         self.open_scope();
-                        if members.len() > 0 {
+                        if !members.is_empty() {
                             let variant_var = self.declare_hidden_var(*ty);
                             println!("III {}, {:?}", variant_var, *ty);
                             let variant_var =
@@ -199,7 +193,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                             ));
                             for (i, member) in members.iter().enumerate() {
                                 if let CasePattern::Ident(id_ty, name) = member {
-                                    let name = self.declare_var(&name, *id_ty);
+                                    let name = self.declare_var(name, *id_ty);
                                     let value_var = ir::Expr::new(
                                         ir::ExprKind::Ident(name.clone()),
                                         span.clone(),
@@ -270,107 +264,9 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                 cases,
                 default: None,
             },
-            span.clone(),
+            span,
         ));
 
         Ok(ir::StmtKind::Block(stmts))
-    }
-    /* TODO: implement real pattern matching
-    fn gen_case_pattern_tree(
-        &mut self,
-        expr: ir::Expr<'ty>,
-        patterns: Vec<(CasePattern, String)>,
-    ) -> Result<ir::StmtKind<'ty>, ModGenError> {
-        if patterns.len() == 1 {
-            if let (CasePattern::None, label) = patterns.first().unwrap() {
-                return Ok(ir::StmtKind::Goto(label.clone()));
-            }
-        }
-        let mut cases: HashMap<PatternDiscriminant, Vec<(CasePattern, String)>> = HashMap::new();
-
-        for (pattern, label) in patterns {
-            match pattern {
-                CasePattern::Variant(ty, enum_name, variant_name, inner) => {
-                    let discriminant = PatternDiscriminant::Variant(enum_name, variant_name);
-                    push_to_vec_map(&mut cases, discriminant, (inner.as_ref().clone(), label));
-                }
-                CasePattern::Tuple(ty, patterns) => {
-                    if patterns.len() == 0 {
-                        // ident essentially
-                    } else {
-                        let start = patterns.first().unwrap();
-                        let remaining = Vec::from(&patterns[1..]);
-                        let discriminant = PatternDiscriminant::Ident(name);
-                        push_to_vec_map(&mut cases, discriminant, (CasePattern::None, label));
-                    }
-                }
-                CasePattern::Ident(ty, name) => {
-                    let discriminant = PatternDiscriminant::Ident(name.clone());
-                    push_to_vec_map(&mut cases, discriminant, (CasePattern::Ident(name), label));
-                }
-                _ => todo!(),
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn gen_case(
-        &mut self,
-        expr: &ast::Spanned<ast::Expr>,
-        arms: &ast::SpanVec<ast::Arm>,
-    ) -> Result<ir::StmtKind<'ty>, ModGenError> {
-        let expr = self.gen_expr(expr)?;
-        // Contains unique patterns
-        // maps discriminant -> (pattern, block_label)
-
-        let mut cases: HashMap<PatternDiscriminant, Vec<(CasePattern, String)>> = HashMap::new();
-        let mut labels: Vec<(String, ir::Stmt<'ty>)> = Vec::new();
-
-        for arm in arms {
-            // TODO: save this label somewhere to make the target block list
-            let label = format!("_bb{}", self.get_var_id());
-
-            self.open_scope();
-            // maybe pass type here and deconstruct recursively
-            let pattern = self.to_case_pattern(arm.value.pattern.as_ref())?;
-            {
-                let stmts = arm
-                    .value
-                    .stmts
-                    .iter()
-                    .map(|stmt| self.gen_stmt(stmt))
-                    .collect::<Result<_, _>>()?;
-                let stmt = ir::Stmt::new(ir::StmtKind::Block(stmts), expr.span().clone());
-                labels.push((label.clone(), stmt));
-            }
-            self.close_scope();
-
-            match pattern {
-                CasePattern::Variant(enum_name, variant_name, inner) => {
-                    let discriminant = PatternDiscriminant::Variant(enum_name, variant_name);
-                    push_to_vec_map(&mut cases, discriminant, (inner.as_ref().clone(), label));
-                }
-                CasePattern::Ident(name) => {
-                    let discriminant = PatternDiscriminant::Ident(name.clone());
-                    push_to_vec_map(&mut cases, discriminant, (CasePattern::Ident(name), label));
-                }
-                _ => todo!(),
-            }
-        }
-
-        todo!()
-    }
-    */
-}
-
-fn push_to_vec_map<K, V>(map: &mut HashMap<K, Vec<V>>, key: K, val: V)
-where
-    K: Eq + std::hash::Hash,
-{
-    if let Some(vec) = map.get_mut(&key) {
-        vec.push(val);
-    } else {
-        map.insert(key, vec![val]);
     }
 }

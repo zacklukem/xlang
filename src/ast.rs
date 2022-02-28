@@ -36,7 +36,7 @@ impl Source {
         let line_end = self
             .line_starts
             .get(line_num)
-            .map(|v| *v)
+            .copied()
             .unwrap_or(self.source_string.len());
         let line = &self.source_string[line_start..line_end];
         let line = line.trim_end();
@@ -127,6 +127,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 
 pub type SpanBox<T> = Box<Spanned<T>>;
 pub type SpanVec<T> = Vec<Spanned<T>>;
+pub type SpanSlice<T> = [Spanned<T>];
 
 #[derive(Clone)]
 pub struct Ident {

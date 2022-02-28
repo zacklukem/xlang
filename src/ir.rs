@@ -98,9 +98,9 @@ impl std::fmt::Display for Path {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use Path::*;
         match self {
-            Terminal(st) => f.write_str(&st),
+            Terminal(st) => f.write_str(st),
             Namespace(st, next) => {
-                f.write_str(&st)?;
+                f.write_str(st)?;
                 f.write_str("::")?;
                 next.fmt(f)
             }
@@ -117,7 +117,7 @@ impl Path {
     pub fn tail(&self) -> Option<&Path> {
         use Path::*;
         match self {
-            Terminal(name) => None,
+            Terminal(_) => None,
             Namespace(_, next) => Some(next),
         }
     }
@@ -224,21 +224,18 @@ impl<'ty> Module<'ty> {
             Err(AlreadyExists)
         } else {
             self.defs.insert(id, def);
-            match path.pop_end() {
-                Some(head_path) => {
-                    match &mut self.get_mut_def_by_path(&head_path).ok_or(NoModule)?.kind {
-                        DefKind::Mod { symbols, .. }
-                        | DefKind::Struct { symbols, .. }
-                        | DefKind::Enum { symbols, .. } => {
-                            let end = path.end().clone();
-                            assert!(symbols.insert(end, id).is_none(), "symbol already inserted");
-                        }
-                        _ => {
-                            return Err(DeclareOnFun);
-                        }
+            if let Some(head_path) = path.pop_end() {
+                match &mut self.get_mut_def_by_path(&head_path).ok_or(NoModule)?.kind {
+                    DefKind::Mod { symbols, .. }
+                    | DefKind::Struct { symbols, .. }
+                    | DefKind::Enum { symbols, .. } => {
+                        let end = path.end().clone();
+                        assert!(symbols.insert(end, id).is_none(), "symbol already inserted");
+                    }
+                    _ => {
+                        return Err(DeclareOnFun);
                     }
                 }
-                None => (),
             }
             self.insert_def_path(id, path);
             Ok(id)

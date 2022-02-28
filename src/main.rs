@@ -15,7 +15,7 @@ pub mod monomorphize;
 pub mod ty;
 pub mod ty_mangle;
 
-lalrpop_mod!(#[allow(all)] pub parser);
+lalrpop_mod!(#[allow(clippy::all)] pub parser);
 
 fn print_pass_errors_and_exit(err: &error_context::ErrorContext) {
     if err.has_errors() {
@@ -29,7 +29,7 @@ fn main() {
 
     let mut module = ir::Module::new(tyc.ctx());
 
-    let mut err = error_context::ErrorContext::new();
+    let mut err = error_context::ErrorContext::default();
 
     let mut args = std::env::args();
 
@@ -42,7 +42,7 @@ fn main() {
     for member in stl_members {
         // Compile stl
         let source_string = std::fs::read_to_string(member).unwrap();
-        let source = std::rc::Rc::new(ast::Source::new(source_string.into()));
+        let source = std::rc::Rc::new(ast::Source::new(source_string));
 
         let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
 

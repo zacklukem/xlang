@@ -43,7 +43,7 @@ where
     }
 }
 
-fn zip_clone_vec<T, U>(left: &Vec<T>, right: &Vec<U>) -> Vec<(T, U)>
+fn zip_clone_vec<T, U>(left: &[T], right: &[U]) -> Vec<(T, U)>
 where
     T: Clone,
     U: Clone,
@@ -231,18 +231,15 @@ where
         writeln!(self.header_writer)?;
 
         for (def_id, def) in self.module.defs_iter() {
-            match &def.kind {
-                DefKind::Enum { variants, .. } => {
-                    let path = self.module.get_path_by_def_id(*def_id);
-                    let path = mangle_path(path);
-                    let path_name = path.clone() + "_k";
-                    writeln!(self.header_writer, "enum {0} {{", path_name)?;
-                    for (variant, _) in variants {
-                        writeln!(self.header_writer, "    {}_{}_k,", path.clone(), variant)?;
-                    }
-                    writeln!(self.header_writer, "}};")?;
+            if let DefKind::Enum { variants, .. } = &def.kind {
+                let path = self.module.get_path_by_def_id(*def_id);
+                let path = mangle_path(path);
+                let path_name = path.clone() + "_k";
+                writeln!(self.header_writer, "enum {0} {{", path_name)?;
+                for variant in variants.keys() {
+                    writeln!(self.header_writer, "    {}_{}_k,", path.clone(), variant)?;
                 }
-                _ => (),
+                writeln!(self.header_writer, "}};")?;
             }
         }
 
@@ -267,30 +264,27 @@ where
         for mono in self.monos {
             let def = self.module.get_def_by_id(mono.def_id);
             let path = self.module.get_path_by_def_id(mono.def_id);
-            match &def.kind {
-                DefKind::Fun {
-                    ty_params,
-                    params,
-                    return_type,
-                    ..
-                } => {
-                    let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
+            if let DefKind::Fun {
+                ty_params,
+                params,
+                return_type,
+                ..
+            } = &def.kind
+            {
+                let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
-                    let generics = zip_clone_vec(ty_params, &mono.ty_params);
-                    let return_type =
-                        replace_generics(self.module.ty_ctx(), *return_type, &generics);
-                    let return_type = return_type.to_c_type(None);
-                    write!(self.header_writer, "{} {}(", return_type, fun_name)?;
-                    for (i, (name, param)) in params.iter().enumerate() {
-                        let param = replace_generics(self.module.ty_ctx(), *param, &generics);
-                        write!(self.header_writer, "{}", param.to_c_type(Some(name)))?;
-                        if i + 1 < params.len() {
-                            write!(self.header_writer, ", ")?;
-                        }
+                let generics = zip_clone_vec(ty_params, &mono.ty_params);
+                let return_type = replace_generics(self.module.ty_ctx(), *return_type, &generics);
+                let return_type = return_type.to_c_type(None);
+                write!(self.header_writer, "{} {}(", return_type, fun_name)?;
+                for (i, (name, param)) in params.iter().enumerate() {
+                    let param = replace_generics(self.module.ty_ctx(), *param, &generics);
+                    write!(self.header_writer, "{}", param.to_c_type(Some(name)))?;
+                    if i + 1 < params.len() {
+                        write!(self.header_writer, ", ")?;
                     }
-                    writeln!(self.header_writer, ");")?;
                 }
-                _ => (),
+                writeln!(self.header_writer, ");")?;
             }
         }
 
@@ -451,7 +445,7 @@ where
         Ok(())
     }
 
-    pub fn stmt(&mut self, stmt: &Stmt<'ty>, ty_params: &Vec<(String, Ty<'ty>)>) -> IoResult<()> {
+    pub fn stmt(&mut self, stmt: &Stmt<'ty>, ty_params: &[(String, Ty<'ty>)]) -> IoResult<()> {
         use StmtKind::*;
         macro_rules! indent {
             () => {
@@ -490,7 +484,7 @@ where
                 todo!()
             }
             Labeled(label, stmt) => {
-                write!(self.source_writer, "{}:\n", label)?;
+                writeln!(self.source_writer, "{}:", label)?;
                 if let Some(stmt) = stmt {
                     indent!();
                     self.stmt(stmt, ty_params)?;
@@ -544,7 +538,7 @@ where
                     self.stmt(stmt, ty_params)?;
                     writeln!(self.source_writer, "break;")?;
                 }
-                if let Some(default) = default {
+                if let Some(stmt) = default {
                     writeln!(self.source_writer, "default:")?;
                     self.stmt(stmt, ty_params)?;
                     writeln!(self.source_writer, "break;")?;
@@ -559,13 +553,13 @@ where
         self.source_writer
     }
 
-    pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &Vec<(String, Ty<'ty>)>) -> IoResult<()> {
+    pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &[(String, Ty<'ty>)]) -> IoResult<()> {
         use ExprKind::*;
         match &expr.kind {
             Ident(id) => write!(self.f(), "{}", id)?,
             // HACK: make some system for intrinsics
             Call { expr, arguments }
-                if arguments.len() == 0
+                if arguments.is_empty()
                     && matches!(&expr.kind,
             GlobalIdent(Path::Namespace(ns, path), generics)
                 if ns == "mem" && matches!(path.as_ref(), Path::Terminal(name) if name == "sizeof") && generics.len() == 1) =>
@@ -583,7 +577,7 @@ where
                 let generics = generics
                     .iter()
                     .map(|ty| replace_generics(self.module.ty_ctx(), *ty, ty_params))
-                    .collect();
+                    .collect::<Vec<_>>();
                 let path_name = mangle_path(path) + &mangle_ty_vec(&generics);
                 write!(self.f(), "{}", path_name)?;
             }
@@ -629,14 +623,16 @@ where
                 let inner_ty = replace_generics(self.module.ty_ctx(), inner_ty, ty_params);
                 let inner_ty = inner_ty.to_c_type(None);
 
+                let ptr_name = "__ptr";
+
                 write!(
                     self.f(),
                     "({{{0} *{1} = malloc(sizeof({0})); *{1} = ",
                     inner_ty,
-                    "__ptr",
+                    ptr_name,
                 )?;
                 self.expr(rhs, ty_params)?;
-                write!(self.f(), "; {};}})", "__ptr")?;
+                write!(self.f(), "; {};}})", ptr_name)?;
                 // write!(self.f(), "&")?;
                 // self.expr(rhs, ty_params)?;
                 // write!(self.f(), ")")?;

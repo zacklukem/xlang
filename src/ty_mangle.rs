@@ -1,7 +1,7 @@
 use crate::ty::*;
 use std::fmt::Write;
 
-pub fn mangle_ty_vec<'ty>(vec: &Vec<Ty<'ty>>) -> String {
+pub fn mangle_ty_vec(vec: &[Ty<'_>]) -> String {
     let mut string = String::new();
     for ty in vec {
         string += "_";
@@ -47,7 +47,7 @@ impl<'ty> Ty<'ty> {
         use TyKind::*;
         match self.0 .0 {
             Primitive(pt) => write!(f, "{}", pt),
-            Param(ty_param) => f.write_str(&ty_param),
+            Param(ty_param) => f.write_str(ty_param),
             Pointer(PointerType::Star, inner) => {
                 inner.mangle_write(f)?;
                 f.write_str("_ptr")
