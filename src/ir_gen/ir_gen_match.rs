@@ -169,7 +169,6 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                         self.open_scope();
                         if !members.is_empty() {
                             let variant_var = self.declare_hidden_var(*ty);
-                            println!("III {}, {:?}", variant_var, *ty);
                             let variant_var =
                                 ir::Expr::new(ir::ExprKind::Ident(variant_var), span.clone(), *ty);
                             stmts.push(ir::Stmt::new(

@@ -37,7 +37,6 @@ impl ErrorContext {
     pub fn emit(&mut self, kind: MsgKind, msg: String, span: &ast::Span) {
         let span = span.clone();
         self.errors.push(Error { kind, msg, span });
-        panic!()
     }
 
     pub fn err(&mut self, msg: String, span: &ast::Span) {

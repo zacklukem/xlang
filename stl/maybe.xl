@@ -4,7 +4,7 @@ pub enum<T> Maybe {
     None,
 }
 
-fun<T, U> Maybe::<T>::zip(self, other: Maybe::<U>) -> Maybe::<(T, U)> {
+fun<T, U> Maybe::<T>::zip(*self, other: Maybe::<U>) -> Maybe::<(T, U)> {
     case self {
     | Maybe::Some(lhs) ->
         case other {
@@ -19,7 +19,7 @@ fun<T, U> Maybe::<T>::zip(self, other: Maybe::<U>) -> Maybe::<(T, U)> {
 }
 
 --* Return the value of the Maybe or else panic
-fun<T> Maybe::<T>::get(self) -> T {
+fun<T> Maybe::<T>::get(*self) -> T {
     case self {
     | Maybe::Some(value) -> ret value;
     | Maybe::None -> panic("Tried to get None");
@@ -27,7 +27,7 @@ fun<T> Maybe::<T>::get(self) -> T {
 }
 
 --* Return the value of the Maybe or else return the given type `other`
-fun<T> Maybe::<T>::get_or(self, other: T) -> T {
+fun<T> Maybe::<T>::get_or(*self, other: T) -> T {
     case self {
     | Maybe::Some(value) -> ret value;
     | Maybe::None -> ret other;
@@ -35,7 +35,7 @@ fun<T> Maybe::<T>::get_or(self, other: T) -> T {
 }
 
 --* Return true if the Maybe contains a value
-fun<T> Maybe::<T>::some(self) -> bool {
+fun<T> Maybe::<T>::some(*self) -> bool {
     case self {
     | Maybe::Some(_) -> ret true;
     | Maybe::None -> ret false;
@@ -43,7 +43,7 @@ fun<T> Maybe::<T>::some(self) -> bool {
 }
 
 --* Return true if the Maybe does not contain a value
-fun Maybe::<T>::some(self) -> bool {
+fun Maybe::<T>::some(*self) -> bool {
     case self {
     | Maybe::Some(_) -> ret false;
     | Maybe::None -> ret true;

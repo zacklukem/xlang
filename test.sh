@@ -24,7 +24,11 @@ do
     filename=$(basename -s .xl "$file")
 
     printf "test $file ... "
-    target/debug/xlang $file examples/build/compile_pass/$filename > $TMPFILE 2>&1
+    target/debug/xlang                                                         \
+        --stl ./stl                                                            \
+        -i $file                                                               \
+        -o examples/build/compile_pass/$filename                               \
+        > $TMPFILE 2>&1
 
     ERR=$?
 
@@ -46,9 +50,9 @@ do
         continue
     fi
 
-    gcc examples/build/compile_pass/$filename.c stl/c/xlang/externed.c \
-          -o examples/build/compile_pass/$filename \
-          -I stl/c \
+    gcc examples/build/compile_pass/$filename.c stl/c/xlang/externed.c         \
+          -o examples/build/compile_pass/$filename                             \
+          -I stl/c                                                             \
           > $TMPFILE 2>&1
 
     ERR=$?
@@ -85,7 +89,11 @@ do
     filename=$(basename -s .xl "$file")
 
     printf "test $file ... "
-    target/debug/xlang $file examples/build/compile_fail/$filename > $TMPFILE 2>&1
+    target/debug/xlang                                                         \
+        --stl ./stl                                                            \
+        -i $file                                                               \
+        -o examples/build/compile_fail/$filename                               \
+        > $TMPFILE 2>&1
 
     ERR=$?
 
