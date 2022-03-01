@@ -1,5 +1,6 @@
 use crate::{ast, codegen, error_context as ec, ir, mod_gen, monomorphize, parser, ty};
 use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
 use std::path;
 
@@ -45,11 +46,17 @@ pub fn run() {
     let mut err = ec::ErrorContext::default();
 
     if let Some(stl) = args.stl() {
-        (module, err) = compile_stl(stl, (module, err));
+        compile_stl(stl, &mut module, &mut err);
     }
 
-    for file in args.input_files() {
-        (module, err) = compile_file(file, module, err);
+    {
+        let mut generators = Vec::new();
+
+        for file in args.input_files() {
+            generators.push(get_mod(file));
+        }
+
+        gen_ir_on(&mut module, &mut err, &mut generators);
     }
 
     // Monomorphize
@@ -95,11 +102,9 @@ fn parse_source<P: AsRef<path::Path>>(filename: P) -> ast::Module {
     }
 }
 
-fn compile_file<'ty, P: AsRef<path::Path>>(
+fn get_mod<'mg, 'ast, 'ty, P: AsRef<path::Path>>(
     file: P,
-    module: ir::Module<'ty>,
-    err: ec::ErrorContext,
-) -> (ir::Module<'ty>, ec::ErrorContext) {
+) -> (ast::Module, String, HashMap<String, ir::Path>) {
     let file_name: String = {
         let file_name = file.as_ref().file_name().unwrap();
         file_name.to_str().unwrap().into()
@@ -107,36 +112,72 @@ fn compile_file<'ty, P: AsRef<path::Path>>(
     let mod_name = &file_name[..file_name.len() - 3];
     let ast_module = parse_source(file);
 
-    // Gen module
-    let mut mod_gen = mod_gen::ModGen::new(
-        module,
-        err,
-        &ast_module,
-        ir::Path::Terminal(mod_name.into()),
-    );
-
-    mod_gen.run().unwrap();
-    let (module, err) = mod_gen.finish();
-    print_pass_errors_and_exit(&err);
-    (module, err)
+    (ast_module, mod_name.into(), HashMap::new())
 }
 
-fn compile_stl<'ty>(
-    stl: &str,
-    (module, err): (ir::Module<'ty>, ec::ErrorContext),
-) -> (ir::Module<'ty>, ec::ErrorContext) {
-    let (mut module, mut err) = (module, err);
+fn gen_ir_on<'ty>(
+    module: &mut ir::Module<'ty>,
+    err: &mut ec::ErrorContext,
+    generators: &mut [(ast::Module, String, HashMap<String, ir::Path>)],
+) {
+    for (ast_module, mod_name, usages) in generators.iter_mut() {
+        let mut mod_gen = mod_gen::ModGen::new(
+            module,
+            err,
+            ast_module,
+            ir::Path::Terminal(mod_name.clone()),
+            usages,
+        );
+
+        if let Err(_) = mod_gen.declare_all() {
+            print_pass_errors_and_exit(err);
+            std::process::exit(1);
+        }
+        print_pass_errors_and_exit(err);
+    }
+    for (ast_module, mod_name, usages) in generators.iter_mut() {
+        let mut mod_gen = mod_gen::ModGen::new(
+            module,
+            err,
+            ast_module,
+            ir::Path::Terminal(mod_name.clone()),
+            usages,
+        );
+        if let Err(_) = mod_gen.define_all() {
+            print_pass_errors_and_exit(err);
+            std::process::exit(1);
+        }
+        print_pass_errors_and_exit(err);
+    }
+    for (ast_module, mod_name, usages) in generators.iter_mut() {
+        let mut mod_gen = mod_gen::ModGen::new(
+            module,
+            err,
+            ast_module,
+            ir::Path::Terminal(mod_name.clone()),
+            usages,
+        );
+        if let Err(_) = mod_gen.gen_all() {
+            print_pass_errors_and_exit(err);
+            std::process::exit(1);
+        }
+        print_pass_errors_and_exit(err);
+    }
+}
+
+fn compile_stl<'ty>(stl: &str, module: &mut ir::Module<'ty>, err: &mut ec::ErrorContext) {
     let dirent = fs::read_dir(stl).unwrap();
+    let mut mod_generators = Vec::new();
     for entry in dirent {
         let entry = entry.unwrap();
         let file = entry.path();
         if let Some(ext) = file.extension() {
             if ext == "xl" {
-                (module, err) = compile_file(file, module, err);
+                mod_generators.push(get_mod(file));
             }
         }
     }
-    (module, err)
+    gen_ir_on(module, err, &mut mod_generators);
 }
 
 fn print_pass_errors_and_exit(err: &ec::ErrorContext) {

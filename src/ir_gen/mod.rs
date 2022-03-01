@@ -116,6 +116,10 @@ impl<'ast, 'ty, 'mg> TypeGenerator<'ast, 'ty> for IrGen<'ty, 'mg> {
     fn usages(&self) -> &HashMap<String, ir::Path> {
         self.usages
     }
+
+    fn err(&mut self) -> &mut ErrorContext {
+        self.err
+    }
 }
 
 impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {

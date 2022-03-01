@@ -1,2 +1,3 @@
 
+extern fun panic(str: *[]u8);
 extern fun check(expr: bool);

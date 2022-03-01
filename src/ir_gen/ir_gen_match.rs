@@ -11,14 +11,17 @@ enum CasePattern<'ty> {
 
 impl<'ty, 'mg> IrGen<'ty, 'mg> {
     fn to_case_pattern(
-        &self,
+        &mut self,
         ty: ty::Ty<'ty>,
         pat: &ast::Spanned<ast::Pattern>,
     ) -> Result<CasePattern<'ty>, ModGenError> {
         let pat = match pat.value() {
             ast::Pattern::Variant(name, _, params, _) => {
                 let name = self.gen_path(name.value())?;
-                assert!(matches!(ty, ty::Ty(Int(ty::TyKind::Adt(_)))));
+                if !matches!(ty, ty::Ty(Int(ty::TyKind::Adt(_)))) {
+                    self.err.err("Invalid pattern".into(), &pat.span);
+                    return Err(ModGenError::UnableToDeclare);
+                }
                 let ty_param_tys =
                     if let ty::Ty(Int(ty::TyKind::Adt(ty::AdtType { ty_params, .. }))) = ty {
                         ty_params

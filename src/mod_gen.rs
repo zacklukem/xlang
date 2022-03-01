@@ -8,13 +8,13 @@ use crate::ty;
 use std::collections::hash_map;
 use std::collections::HashMap;
 
-pub struct ModGen<'ast, 'ty> {
+pub struct ModGen<'mg, 'ast, 'ty> {
     ast_module: &'ast ast::Module,
-    module: ir::Module<'ty>,
-    err: ErrorContext,
+    module: &'mg mut ir::Module<'ty>,
+    err: &'mg mut ErrorContext,
     current_generics: Vec<String>,
     mod_path: ir::Path,
-    usages: HashMap<String, ir::Path>,
+    usages: &'mg mut HashMap<String, ir::Path>,
 }
 
 #[derive(Debug)]
@@ -27,6 +27,7 @@ pub trait TypeGenerator<'ast, 'ty> {
     fn module(&self) -> &ir::Module<'ty>;
     fn mod_path(&self) -> &ir::Path;
     fn usages(&self) -> &HashMap<String, ir::Path>;
+    fn err(&mut self) -> &mut ErrorContext;
 
     fn gen_type(&mut self, ty: &ast::Spanned<ast::Type>) -> Result<ty::Ty<'ty>, ModGenError> {
         let ty = match ty.value() {
@@ -38,12 +39,16 @@ pub trait TypeGenerator<'ast, 'ty> {
                         self.module().ty_ctx().int(ty::TyKind::Param(st))
                     }
                     _ => {
-                        let def_id = self.module().get_def_id_by_path(&path).unwrap();
-                        self.module().ty_ctx().int(ty::TyKind::Adt(ty::AdtType {
-                            def_id,
-                            path,
-                            ty_params,
-                        }))
+                        if let Some(def_id) = self.module().get_def_id_by_path(&path) {
+                            self.module().ty_ctx().int(ty::TyKind::Adt(ty::AdtType {
+                                def_id,
+                                path,
+                                ty_params,
+                            }))
+                        } else {
+                            self.err().err("Type name not found".into(), &ty.span);
+                            ty::err_ty(self.module().ty_ctx())
+                        }
                     }
                 }
             }
@@ -140,13 +145,13 @@ pub trait TypeGenerator<'ast, 'ty> {
     }
 }
 
-impl<'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'ast, 'ty> {
+impl<'mg, 'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'mg, 'ast, 'ty> {
     fn current_generics(&self) -> &[String] {
         &self.current_generics
     }
 
     fn module(&self) -> &ir::Module<'ty> {
-        &self.module
+        self.module
     }
 
     fn mod_path(&self) -> &ir::Path {
@@ -154,24 +159,29 @@ impl<'ast, 'ty> TypeGenerator<'ast, 'ty> for ModGen<'ast, 'ty> {
     }
 
     fn usages(&self) -> &HashMap<String, ir::Path> {
-        &self.usages
+        self.usages
+    }
+
+    fn err(&mut self) -> &mut ErrorContext {
+        self.err
     }
 }
 
-impl<'ast, 'ty> ModGen<'ast, 'ty> {
+impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
     pub fn new(
-        module: ir::Module<'ty>,
-        err: ErrorContext,
+        module: &'mg mut ir::Module<'ty>,
+        err: &'mg mut ErrorContext,
         ast_module: &'ast ast::Module,
         mod_path: ir::Path,
-    ) -> ModGen<'ast, 'ty> {
+        usages: &'mg mut HashMap<String, ir::Path>,
+    ) -> ModGen<'mg, 'ast, 'ty> {
         ModGen {
             ast_module,
             module,
             err,
             mod_path,
             current_generics: Vec::new(),
-            usages: HashMap::new(),
+            usages,
         }
     }
 
@@ -204,11 +214,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         Ok(full_path)
     }
 
-    pub fn finish(self) -> (ir::Module<'ty>, ErrorContext) {
-        (self.module, self.err)
-    }
-
-    pub fn run(&mut self) -> Result<(), ModGenError> {
+    pub fn declare_all(&mut self) -> Result<(), ModGenError> {
         let def = ir::Def::new(
             ir::DefVisibility::Public,
             ir::DefKind::Mod {
@@ -217,7 +223,15 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
         );
         self.module.declare(self.mod_path.clone(), def).unwrap();
         self.declare_types()?;
+        Ok(())
+    }
+
+    pub fn define_all(&mut self) -> Result<(), ModGenError> {
         self.define_types()?;
+        Ok(())
+    }
+
+    pub fn gen_all(&mut self) -> Result<(), ModGenError> {
         self.gen_ir()?;
         Ok(())
     }
@@ -329,6 +343,10 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             Some(ir::Def {
                 kind: ir::DefKind::Struct { .. },
                 ..
+            })
+            | Some(ir::Def {
+                kind: ir::DefKind::Enum { .. },
+                ..
             }) => {
                 let def_id = self.module.get_def_id_by_path(struct_name).unwrap();
 
@@ -396,7 +414,7 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             {
                 out.push((
                     String::from(name.str()),
-                    ModGen::<'ast, 'ty>::gen_type(self, ty)?,
+                    ModGen::<'mg, 'ast, 'ty>::gen_type(self, ty)?,
                 ));
             }
             out
@@ -423,9 +441,20 @@ impl<'ast, 'ty> ModGen<'ast, 'ty> {
             // TODO: insert these
             ty_params: self.current_generics.clone(),
         };
-        self.module
-            .declare(fun_name, ir::Def::new(visibility, def))
-            .unwrap();
+        println!("{}", fun_name);
+        match self.module.declare(fun_name, ir::Def::new(visibility, def)) {
+            Err(ir::DefineErr::AlreadyExists) => self
+                .err()
+                .err("This function already exists".into(), &ast_fun_name.span),
+            Err(ir::DefineErr::DeclareOnFun) => self.err().err(
+                "Functions cannot act as namespaces".into(),
+                &ast_fun_name.span,
+            ),
+            Err(ir::DefineErr::NoModule) => self
+                .err()
+                .err("No such namespace exists".into(), &ast_fun_name.span),
+            _ => (),
+        }
         self.current_generics.clear();
         Ok(())
     }
