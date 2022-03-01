@@ -330,7 +330,95 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         self.label_next(break_label(&label_prefix));
         Ok(stmt)
     }
-    // gen_for_range_stmt
+
+    fn gen_for_range_stmt(
+        &mut self,
+        span: &ast::Span,
+        label: Option<&ast::Ident>,
+        initializer: &ast::Spanned<ast::Pattern>,
+        range: &ast::Spanned<ast::Expr>,
+        block: &ast::Spanned<ast::Stmt>,
+    ) -> Result<ir::StmtKind<'ty>, ModGenError> {
+        let label_prefix = label
+            .map(|v| v.str().into())
+            .unwrap_or_else(|| format!("for_{}", self.get_var_id()));
+
+        self.continue_break_label.push(label_prefix.clone());
+
+        let init_span = &initializer.span;
+        let initializer = if let ast::Pattern::Ident(name) = initializer.value() {
+            name.value().ident_str().unwrap()
+        } else {
+            todo!();
+        };
+        let usize_ty = ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::USize);
+        let expr = self.gen_expr(range)?;
+        let (from, to): (Box<ir::Expr<'ty>>, Box<ir::Expr<'ty>>) = match expr.kind {
+            ir::ExprKind::Range(from, to) => (from, to),
+            ir::ExprKind::RangeFrom(to) => (
+                Box::new(ir::Expr::new(
+                    ir::ExprKind::Integer(ir::IntegerSpecifier::USize(0)),
+                    init_span.clone(),
+                    usize_ty,
+                )),
+                to,
+            ),
+            _ => todo!(),
+        };
+
+        self.open_scope();
+
+        let initializer = self.declare_var(&initializer, usize_ty);
+        let initializer = ir::ExprKind::Ident(initializer);
+        let initializer = ir::Expr::new(initializer, init_span.clone(), usize_ty);
+        let initializer_stmt = ir::Stmt::new(
+            ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                ir::ExprKind::Assign(Box::new(initializer.clone()), ir::AssignOp::Eq, from),
+                init_span.clone(),
+                usize_ty,
+            ))),
+            init_span.clone(),
+        );
+        let condition = Box::new(ir::Expr::new(
+            ir::ExprKind::Binary(Box::new(initializer.clone()), ir::BinOp::Lt, to),
+            init_span.clone(),
+            usize_ty,
+        ));
+        let incrementor = Box::new(ir::Expr::new(
+            ir::ExprKind::Assign(
+                Box::new(initializer.clone()),
+                ir::AssignOp::AddEq,
+                Box::new(ir::Expr::new(
+                    ir::ExprKind::Integer(ir::IntegerSpecifier::USize(1)),
+                    init_span.clone(),
+                    usize_ty,
+                )),
+            ),
+            init_span.clone(),
+            usize_ty,
+        ));
+        let block = Box::new(self.gen_stmt(block)?);
+
+        self.close_scope();
+
+        let popped_prefix = self.continue_break_label.pop().unwrap();
+
+        assert_eq!(popped_prefix, label_prefix);
+        let stmt = ir::StmtKind::For {
+            initializer: Box::new(initializer_stmt),
+            condition,
+            incrementor,
+            block,
+        };
+
+        let stmt = ir::StmtKind::Labeled(
+            continue_label(&label_prefix),
+            Some(Box::new(ir::Stmt::new(stmt, span.clone()))),
+        );
+        self.label_next(break_label(&label_prefix));
+
+        Ok(stmt)
+    }
 
     fn gen_let_stmt_patterned(
         &mut self,
@@ -520,12 +608,18 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
             }
 
             ast::Stmt::ForRange {
-                label: _,
-                initializer: _,
-                range: _,
-                block: _,
+                label,
+                initializer,
+                range,
+                block,
                 ..
-            } => todo!(),
+            } => self.gen_for_range_stmt(
+                &stmt.span,
+                label.as_ref(),
+                initializer.as_ref(),
+                range.as_ref(),
+                block,
+            )?,
 
             ast::Stmt::Let {
                 pattern,

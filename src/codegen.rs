@@ -476,12 +476,18 @@ where
                 self.stmt(block, ty_params)?;
             }
             For {
-                initializer: _,
-                condition: _,
-                incrementor: _,
-                block: _,
+                initializer,
+                condition,
+                incrementor,
+                block,
             } => {
-                todo!()
+                write!(self.source_writer, "for (")?;
+                self.stmt(initializer, ty_params)?;
+                self.expr(condition, ty_params)?;
+                write!(self.source_writer, ";")?;
+                self.expr(incrementor, ty_params)?;
+                write!(self.source_writer, ")")?;
+                self.stmt(block, ty_params)?;
             }
             Labeled(label, stmt) => {
                 writeln!(self.source_writer, "{}:", label)?;

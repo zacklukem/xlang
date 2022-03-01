@@ -53,3 +53,24 @@ fun<T> Vec::<T>::get(*self, idx: usize) -> *T {
 fun<T> Vec::<T>::free(*self) {
     mem::free(self.data);
 }
+
+fun<T> Vec::<T>::iter(*self) -> Iter::<T> {
+    ret Iter::<T> of {
+        data: self,
+        idx: 0,
+    };
+}
+
+struct<T> Iter {
+    data: *Vec::<T>,
+    idx: usize,
+}
+
+fun<T> Iter::<T>::next(*self) -> Maybe::<*T> {
+    if self.idx < self.data.len {
+        self.idx += 1;
+        ret Some::<*T>(self.data.get(self.idx - 1));
+    } else {
+        ret None::<*T>();
+    }
+}

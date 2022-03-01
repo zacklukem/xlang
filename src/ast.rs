@@ -157,6 +157,13 @@ impl Name {
         matches!(self, Name::Ident(..))
     }
 
+    pub fn ident_str(&self) -> Option<String> {
+        match self {
+            Name::Ident(id, _) => Some(id.str().into()),
+            _ => None,
+        }
+    }
+
     pub fn pop_end(&self) -> Option<Name> {
         use Name::*;
         match self {
