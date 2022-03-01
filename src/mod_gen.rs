@@ -215,6 +215,14 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
     }
 
     pub fn declare_all(&mut self) -> Result<(), ModGenError> {
+        for stmt in &self.ast_module.top_stmts {
+            if let TopStmt::Use(_, name) = stmt.value() {
+                let path = self.gen_path_raw(name.value())?;
+                let end = path.end();
+                let head = path.pop_end().unwrap();
+                self.usages.insert(end.clone(), head);
+            }
+        }
         let def = ir::Def::new(
             ir::DefVisibility::Public,
             ir::DefKind::Mod {
@@ -328,6 +336,7 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
                 } => {
                     self.define_fun_type(false, pub_tok, type_params, name, params, return_type)?
                 }
+                _ => (),
             }
         }
         Ok(())

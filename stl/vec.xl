@@ -1,0 +1,55 @@
+use maybe::Maybe;
+use maybe::Maybe::Some;
+use maybe::Maybe::None;
+
+struct<T> Vec {
+    data: *T,
+    len: usize,
+    cap: usize,
+}
+
+fun<T> Vec::<T>::new() -> Vec::<T> {
+    ret Vec::<T> of {
+        data: mem::allocate::<T>(8),
+        len: 0,
+        cap: 8,
+    };
+}
+
+fun<T> Vec::<T>::push(*self, data: T) {
+    if self.len == self.cap {
+        self.cap += 8;
+        mem::resize::<T>(&self.data, self.cap);
+    }
+    self.data[self.len] = data;
+    self.len += 1;
+}
+
+fun<T> Vec::<T>::pop(*self) -> Maybe::<T> {
+    if self.len == 0 {
+        ret None::<T>();
+    } else {
+        self.len -= 1;
+        ret Some::<T>(self.data[self.len]);
+    }
+}
+
+fun<T> Vec::<T>::at(*self, idx: usize) -> Maybe::<*T> {
+    if idx < self.len {
+        ret Some::<*T>(&self.data[idx]);
+    } else {
+        ret None::<*T>();
+    }
+}
+
+fun<T> Vec::<T>::get(*self, idx: usize) -> *T {
+    if idx < self.len {
+        ret &self.data[idx];
+    } else {
+        check::panic("Index out of bounds");
+    }
+}
+
+fun<T> Vec::<T>::free(*self) {
+    mem::free(self.data);
+}

@@ -61,6 +61,7 @@ EnumVariant: (Ident, SpanVec<Type>) = {
 }
 
 pub TopStmt: TopStmt = {
+    <Span<"use">> <SpanBox<Name>> ";" => TopStmt::Use(<>),
     <extern_tok: Span<"extern">?> <pub_tok: Span<"pub">?> <fun_tok: Span<"fun">> <type_params: DeclTypeParams?> <name: SpanBox<Name>> "(" <params: FunParams> ")"
         <return_type: ("->" <SpanBox<Type>>)?> ";" => TopStmt::FunDecl {
             extern_tok,
