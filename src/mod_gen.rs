@@ -441,7 +441,6 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             // TODO: insert these
             ty_params: self.current_generics.clone(),
         };
-        println!("{}", fun_name);
         match self.module.declare(fun_name, ir::Def::new(visibility, def)) {
             Err(ir::DefineErr::AlreadyExists) => self
                 .err()
