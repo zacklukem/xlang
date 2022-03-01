@@ -643,6 +643,39 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
             ast::Stmt::Case { expr, arms, .. } => self.gen_case(expr, arms)?,
 
             ast::Stmt::Expr(expr) => ir::StmtKind::Expr(Box::new(self.gen_expr(expr)?)),
+            ast::Stmt::InlineC {
+                inputs,
+                outputs,
+                code,
+                ..
+            } => {
+                let inputs = inputs
+                    .iter()
+                    .map(|(pt, varname, replace_name)| {
+                        println!("{}", varname.str());
+                        let varname: String = match pt {
+                            ast::InlineCParamType::Var => {
+                                self.scope.resolve(varname.str()).unwrap().clone()
+                            }
+                            _ => varname.str().into(),
+                        };
+                        (pt.into(), varname, replace_name.str().into())
+                    })
+                    .collect();
+                let outputs = outputs
+                    .iter()
+                    .map(|(replace_name, pt, varname)| {
+                        let varname = self.scope.resolve(varname.str()).unwrap();
+                        (replace_name.str().into(), pt.into(), varname.clone())
+                    })
+                    .collect();
+                let code = code.str().into();
+                ir::StmtKind::InlineC {
+                    inputs,
+                    outputs,
+                    code,
+                }
+            }
         };
         let span = stmt.span.clone();
         let stmt = ir::Stmt::new(stmt_kind, span.clone());
@@ -1390,8 +1423,8 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 let expr = ir::Expr::new(expr, expr_span, ty);
                 Ok(expr)
             }
-            (ty::TyKind::Primitive(target), ty::TyKind::Primitive(current))
-                if current.is_integral() && target.is_integral() && target < current =>
+            (ty::TyKind::Primitive(target), ty::TyKind::Primitive(ty::PrimitiveType::Integer))
+                if target.is_integral() =>
             {
                 let expr = ir::ExprKind::Cast(Box::new(expr), ty);
                 let expr = ir::Expr::new(expr, expr_span, ty);

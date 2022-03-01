@@ -294,8 +294,29 @@ impl Stmt<'_> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum InlineCParamType {
+    Var,
+    Type,
+}
+
+impl From<&ast::InlineCParamType> for InlineCParamType {
+    fn from(ast: &ast::InlineCParamType) -> Self {
+        match ast {
+            ast::InlineCParamType::Var => InlineCParamType::Var,
+            ast::InlineCParamType::Type => InlineCParamType::Type,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum StmtKind<'ty> {
+    InlineC {
+        inputs: Vec<(InlineCParamType, String, String)>,
+        outputs: Vec<(String, InlineCParamType, String)>,
+        code: String,
+    },
+
     If {
         condition: Box<Expr<'ty>>,
         block: Box<Stmt<'ty>>,

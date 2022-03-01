@@ -261,6 +261,12 @@ pub struct Arm {
 }
 
 #[derive(Debug, Clone)]
+pub enum InlineCParamType {
+    Var,
+    Type,
+}
+
+#[derive(Debug, Clone)]
 pub enum Stmt {
     If {
         if_tok: Span,
@@ -306,6 +312,13 @@ pub enum Stmt {
         type_name: Option<SpanBox<Type>>,
         eq_tok: Span,
         expr: SpanBox<Expr>,
+    },
+
+    InlineC {
+        at_c: Span,
+        inputs: Vec<(InlineCParamType, Span, Span)>,
+        outputs: Vec<(Span, InlineCParamType, Span)>,
+        code: Span,
     },
 
     Block(Span, SpanVec<Stmt>, Span),

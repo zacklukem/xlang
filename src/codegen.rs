@@ -1,8 +1,8 @@
 use crate::generics::replace_generics;
 use crate::intern::Int;
 use crate::ir::{
-    AssignOp, BinOp, DefKind, Expr, ExprKind, ExternKind, FloatSpecifier, IntegerSpecifier, Module,
-    Path, Stmt, StmtKind, UnaryOp,
+    AssignOp, BinOp, DefKind, Expr, ExprKind, ExternKind, FloatSpecifier, InlineCParamType,
+    IntegerSpecifier, Module, Path, Stmt, StmtKind, UnaryOp,
 };
 use crate::monomorphize::DefInstance;
 use crate::ty::{AdtType, PrimitiveType, Ty, TyKind};
@@ -550,6 +550,34 @@ where
                     writeln!(self.source_writer, "break;")?;
                 }
                 write!(self.source_writer, "}}")?;
+            }
+            InlineC {
+                inputs,
+                outputs,
+                code,
+            } => {
+                let mut code = code.to_string();
+                for (param_type, varname, replace_name) in inputs {
+                    match param_type {
+                        InlineCParamType::Var => {
+                            code = code.replace(replace_name, varname);
+                        }
+                        InlineCParamType::Type => {
+                            let ty = self.module.ty_ctx().int(TyKind::Param(varname.clone()));
+                            let param = replace_generics(self.module.ty_ctx(), ty, ty_params);
+                            let param = param.to_c_type(None);
+                            code = code.replace(replace_name, &param);
+                        }
+                    }
+                }
+                for (replace_name, _, varname) in outputs {
+                    code = code.replace(replace_name, varname);
+                }
+                writeln!(
+                    self.source_writer,
+                    "/*FROM_INLINE*/\n{}\n/*END_FROM_INLine*/",
+                    &code[1..code.len() - 1]
+                )?;
             }
         }
         Ok(())

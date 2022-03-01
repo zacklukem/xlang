@@ -50,7 +50,7 @@ do
         continue
     fi
 
-    gcc examples/build/compile_pass/$filename.c stl/c/xlang/externed.c         \
+    gcc examples/build/compile_pass/$filename.c                                \
           -o examples/build/compile_pass/$filename                             \
           -I stl/c                                                             \
           > $TMPFILE 2>&1

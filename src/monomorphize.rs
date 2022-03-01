@@ -263,7 +263,7 @@ impl<'ty> Monomorphize<'ty> {
                     self.stmt(default, ty_params);
                 }
             }
-            Goto(_) => (),
+            InlineC { .. } | Goto(_) => (),
         }
     }
 

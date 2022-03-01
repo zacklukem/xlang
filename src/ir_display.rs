@@ -181,6 +181,9 @@ impl Display for StmtKind<'_> {
                 }
                 f.write_str("}}")
             }
+            StmtKind::InlineC { code, .. } => {
+                write!(f, "[INLINE_C: {}]", code)
+            }
         }
     }
 }

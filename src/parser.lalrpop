@@ -115,6 +115,21 @@ Arm: Arm = {
         => Arm { <> }
 };
 
+InlineCParamType: InlineCParamType = {
+    "var" => InlineCParamType::Var,
+    "type" => InlineCParamType::Type,
+}
+
+InlineCInParam: (InlineCParamType, Span, Span) = {
+    <InlineCParamType> <Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> ":"
+        <Span<r"\$[_a-zA-Z][_a-zA-Z0-9]*">> => (<>)
+}
+
+InlineCOutParam: (Span, InlineCParamType, Span) = {
+    <Span<r"\$[_a-zA-Z][_a-zA-Z0-9]*">> ":" <InlineCParamType>
+        <Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> => (<>)
+}
+
 pub Stmt: Stmt = {
     <case_tok: Span<"case">> <expr: SpanBox<Expr>> <open_brace: Span<"{">>
         <arms: Spanned<Arm>*> <close_brace: Span<"}">> => Stmt::Case {<>},
@@ -135,6 +150,9 @@ pub Stmt: Stmt = {
     <Span<"break">> <Ident?> ";" => Stmt::Break(<>),
 
     <SpanBox<Expr>> ";" => Stmt::Expr(<>),
+
+    <at_c: Span<"@c">> "(" <inputs: Vec0<InlineCInParam, ",">> ";" <outputs: Vec0<InlineCOutParam, ",">> ";"
+        <code: Span<r#""[^"]*""#>> ")" ";"=> Stmt::InlineC {<>},
 
     IfStmt
 };

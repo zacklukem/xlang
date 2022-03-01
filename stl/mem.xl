@@ -1,9 +1,33 @@
-extern fun realloc(ptr: *void, size: usize) -> *void;
-extern fun malloc(size: usize) -> *void;
+fun realloc(ptr: *void, size: usize) -> *void {
+    let out = null as *void;
+    @c(var ptr: $ptr, var size: $size ; $out: var out ; "
+        $out = realloc($ptr, $size);
+    ");
+    ret out;
+}
 
-extern fun<T> sizeof() -> usize;
+fun malloc(size: usize) -> *void {
+    let out = null as *void;
+    @c(var size: $size ; $out: var out ; "
+        $out = malloc($size);
+    ");
+    ret out;
+}
 
-extern fun free(ptr: *void);
+fun free(ptr: *void) {
+    @c(var ptr: $ptr ;; "
+        free($ptr);
+    ");
+}
+
+fun<T> sizeof() -> usize {
+    let out = 0 as usize;
+    @c(type T: $T; $out: var out ; "
+        $out = sizeof($T);
+    ");
+    ret out;
+}
+
 
 fun<T> resize(ptr: **T, len: usize) {
     *ptr = realloc(*ptr, len * sizeof::<T>()) as *T;
