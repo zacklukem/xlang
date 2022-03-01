@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lalrpop_util;
-
 extern crate clap;
+extern crate either;
 
 pub mod ast;
 pub mod codegen;

@@ -7,6 +7,7 @@ use crate::ir::{
 use crate::monomorphize::DefInstance;
 use crate::ty::{AdtType, PrimitiveType, Ty, TyKind};
 use crate::ty_mangle::mangle_ty_vec;
+use either::Either;
 use std::collections::HashSet;
 use std::fmt::Result as FmtResult;
 use std::fmt::Write as FmtWrite;
@@ -288,76 +289,187 @@ where
             }
         }
 
-        for ty in self.special_types {
-            if let TyKind::Tuple(tys) = ty.0 .0 {
-                let mangle = ty.to_c_type(None);
-                writeln!(self.header_writer, "#ifndef XLANG_DEFINE_{}", mangle)?;
-                writeln!(self.header_writer, "#define XLANG_DEFINE_{}", mangle)?;
-                write!(self.header_writer, "struct ")?;
-
-                write!(self.header_writer, "tuple")?;
-                for ty in tys {
-                    let mangle = ty.mangle();
-                    write!(self.header_writer, "_{}", mangle)?;
-                }
-                writeln!(self.header_writer, " {{")?;
-                for (i, ty) in tys.iter().enumerate() {
-                    let ident = format!("_{}", i);
-                    let def = ty.to_c_type(Some(&ident));
-                    writeln!(self.header_writer, "    {};", def)?;
-                }
-                writeln!(self.header_writer, "}};")?;
-
-                writeln!(self.header_writer, "#endif")?;
-            }
-        }
-
         Ok(())
     }
 
+    /// The type index is a number representing the number of abstract data types
+    /// enclosed in a type.
+    ///
+    /// ```xlang
+    /// -- Structures have a type index of the maximum type index of their
+    /// -- members + 1
+    /// struct Basic { -- Type index: 1
+    ///     a: i32, -- Primitive types and pointers have a type index of 0
+    ///     b: i64,
+    /// }
+    ///
+    /// struct Outer { -- Type index: 3
+    ///     -- Tuples have a type index of the max of their members + 1
+    ///     a: (Basic, i32), -- Type index: 2
+    ///     b: i64, -- Type index: 0
+    /// }
+    ///
+    /// -- Tye type index of an enum is the max type index of its variants + 1
+    /// enum Enum { -- Type index: 5
+    ///     -- Variants have a type index the same as tuples
+    ///     Stuff(Outer, i32), -- Type index: 4
+    ///     More(i32, *Outer), -- Type index: 1
+    /// }
+    /// ```
+    fn type_index(&self, ty: Ty<'ty>) -> usize {
+        // TODO: handle recursive data types
+        match &ty.0 .0 {
+            TyKind::Param(_) => todo!(),
+            TyKind::Tuple(tys) => tys.iter().map(|ty| self.type_index(*ty)).max().unwrap_or(0) + 1,
+            TyKind::SizedArray(_, ty) => self.type_index(*ty),
+            TyKind::Range(ty) => self.type_index(*ty),
+            TyKind::Lhs(ty) => self.type_index(*ty),
+            TyKind::Adt(AdtType {
+                def_id, ty_params, ..
+            }) => {
+                let def = self.module.get_def_by_id(*def_id);
+                match &def.kind {
+                    DefKind::Struct {
+                        members,
+                        ty_params: ty_param_names,
+                        ..
+                    } => {
+                        let generics = zip_clone_vec(ty_param_names, ty_params);
+                        members
+                            .iter()
+                            .map(|(_, ty)| {
+                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                self.type_index(ty)
+                            })
+                            .max()
+                            .unwrap_or(0)
+                            + 1
+                    }
+                    DefKind::Enum {
+                        variants,
+                        ty_params: ty_param_names,
+                        ..
+                    } => {
+                        let generics = zip_clone_vec(ty_param_names, ty_params);
+                        variants
+                            .iter()
+                            .map(|(_, ty)| {
+                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                self.type_index(ty)
+                            })
+                            .max()
+                            .unwrap_or(0)
+                            + 1
+                        //
+                    }
+                    _ => panic!(),
+                }
+            }
+            TyKind::Primitive(_)
+            | TyKind::UnsizedArray(_)
+            | TyKind::Fun(_, _)
+            | TyKind::Pointer(_, _)
+            | TyKind::Err
+            | TyKind::Unknown => 0,
+        }
+    }
+
     fn output_struct_defs(&mut self) -> IoResult<()> {
+        let mut defs: Vec<(usize, Either<Ty<'ty>, DefInstance<'ty>>)> = Vec::new();
+
+        for ty in self.special_types {
+            let idx = self.type_index(*ty);
+            defs.push((idx, Either::Left(*ty)));
+        }
+
         for mono in self.monos {
             let def = self.module.get_def_by_id(mono.def_id);
-            let path = self.module.get_path_by_def_id(mono.def_id);
-            match &def.kind {
-                DefKind::Struct {
-                    members, ty_params, ..
-                } => {
-                    let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
+            if let DefKind::Struct { .. } | DefKind::Enum { .. } = &def.kind {
+                let path = self.module.get_path_by_def_id(mono.def_id);
+                let ty = self.module.ty_ctx().int(TyKind::Adt(AdtType {
+                    def_id: mono.def_id,
+                    path: path.clone(),
+                    ty_params: mono.ty_params.clone(),
+                }));
+                let idx = self.type_index(ty);
+                defs.push((idx, Either::Right(mono.clone())));
+            }
+        }
 
-                    let generics = zip_clone_vec(ty_params, &mono.ty_params);
+        defs.sort_unstable_by(|(idx0, _), (idx1, _)| idx0.partial_cmp(idx1).unwrap());
 
-                    writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
-                    for (name, ty) in members {
-                        let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
-                        let ty = ty.to_c_type(Some(name));
-                        writeln!(self.header_writer, "    {};", ty)?;
+        for (idx, def) in defs {
+            match def {
+                Either::Left(ty) => {
+                    if let TyKind::Tuple(tys) = ty.0 .0 {
+                        let mangle = ty.to_c_type(None);
+                        writeln!(self.header_writer, "#ifndef XLANG_DEFINE_{}", mangle)?;
+                        writeln!(self.header_writer, "#define XLANG_DEFINE_{}", mangle)?;
+                        writeln!(self.header_writer, "// Type index: {}", idx)?;
+                        write!(self.header_writer, "struct ")?;
+
+                        write!(self.header_writer, "tuple")?;
+                        for ty in tys {
+                            let mangle = ty.mangle();
+                            write!(self.header_writer, "_{}", mangle)?;
+                        }
+                        writeln!(self.header_writer, " {{")?;
+                        for (i, ty) in tys.iter().enumerate() {
+                            let ident = format!("_{}", i);
+                            let def = ty.to_c_type(Some(&ident));
+                            writeln!(self.header_writer, "    {};", def)?;
+                        }
+                        writeln!(self.header_writer, "}};")?;
+
+                        writeln!(self.header_writer, "#endif")?;
                     }
-                    writeln!(self.header_writer, "}};")?;
                 }
-                DefKind::Enum {
-                    variants,
-                    ty_params,
-                    ..
-                } => {
-                    let path = mangle_path(path);
-                    let path_name = path.clone() + &mangle_ty_vec(&mono.ty_params);
-                    let kind_type_name = path.clone() + "_k";
+                Either::Right(mono) => {
+                    let def = self.module.get_def_by_id(mono.def_id);
+                    let path = self.module.get_path_by_def_id(mono.def_id);
+                    match &def.kind {
+                        DefKind::Struct {
+                            members, ty_params, ..
+                        } => {
+                            let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
-                    let generics = zip_clone_vec(ty_params, &mono.ty_params);
+                            let generics = zip_clone_vec(ty_params, &mono.ty_params);
 
-                    writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
-                    writeln!(self.header_writer, "    enum {} kind;", kind_type_name)?;
-                    writeln!(self.header_writer, "    union {{")?;
-                    for (name, ty) in variants {
-                        let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
-                        let ty = ty.to_c_type(Some(name));
-                        writeln!(self.header_writer, "        {};", ty)?;
+                            writeln!(self.header_writer, "// Type index: {}", idx)?;
+                            writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
+                            for (name, ty) in members {
+                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = ty.to_c_type(Some(name));
+                                writeln!(self.header_writer, "    {};", ty)?;
+                            }
+                            writeln!(self.header_writer, "}};")?;
+                        }
+                        DefKind::Enum {
+                            variants,
+                            ty_params,
+                            ..
+                        } => {
+                            let path = mangle_path(path);
+                            let path_name = path.clone() + &mangle_ty_vec(&mono.ty_params);
+                            let kind_type_name = path.clone() + "_k";
+
+                            let generics = zip_clone_vec(ty_params, &mono.ty_params);
+
+                            writeln!(self.header_writer, "// Type index: {}", idx)?;
+                            writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
+                            writeln!(self.header_writer, "    enum {} kind;", kind_type_name)?;
+                            writeln!(self.header_writer, "    union {{")?;
+                            for (name, ty) in variants {
+                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = ty.to_c_type(Some(name));
+                                writeln!(self.header_writer, "        {};", ty)?;
+                            }
+                            writeln!(self.header_writer, "    }};")?;
+                            writeln!(self.header_writer, "}};")?;
+                        }
+                        _ => (),
                     }
-                    writeln!(self.header_writer, "    }};")?;
-                    writeln!(self.header_writer, "}};")?;
                 }
-                _ => (),
             }
         }
 

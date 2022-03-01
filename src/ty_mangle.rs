@@ -1,3 +1,4 @@
+use crate::codegen::mangle_path;
 use crate::ty::*;
 use std::fmt::Write;
 
@@ -92,7 +93,7 @@ impl<'ty> Ty<'ty> {
                 path,
                 ty_params,
             }) => {
-                write!(f, "{}", path)?;
+                write!(f, "{}", mangle_path(path))?;
                 for ty in ty_params {
                     f.write_str("_")?;
                     ty.mangle_write(f)?;

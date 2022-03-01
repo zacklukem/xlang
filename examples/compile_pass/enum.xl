@@ -1,32 +1,33 @@
-
-enum<T> Maybe {
-    Some(T),
-    None,
-}
+use maybe::Maybe;
+use maybe::Maybe::Some;
+use maybe::Maybe::None;
 
 enum<T> Stuff {
-    Double(T, T),
-    Single(T),
+    Double(Maybe::<T>, Maybe::<T>),
+    Single(Maybe::<T>),
 }
+
  -- hi
 fun main() -> i32 {
-    let value = Stuff::Double::<i32>(1234, 1234);
+    let value = Stuff::Double::<i32>(Some::<i32>(1234), Some::<i32>(4321));
+
     let something = Maybe::None::<i32>();
+
     case value {
     | Stuff::Double(a, b) ->
-        something = Maybe::Some::<i32>(8);
+        something = a;
     | Stuff::Single(a) ->
         ret 5;
     }
 
     case something {
-    | Maybe::Some(a) ->
-        if a == 8 {
+    | Some(a) ->
+        if a == 1234 {
             ret 0;
         } else {
             ret 2;
         }
-    | Maybe::None ->
+    | None ->
         ret 4;
     }
     ret 3;

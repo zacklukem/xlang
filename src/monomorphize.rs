@@ -4,7 +4,7 @@ use crate::ty::{AdtType, Ty, TyKind};
 use std::collections::{HashMap, HashSet};
 use std::iter::Iterator;
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct DefInstance<'ty> {
     pub def_id: DefId,
     pub ty_params: Vec<Ty<'ty>>,
