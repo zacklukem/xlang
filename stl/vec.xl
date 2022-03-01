@@ -1,6 +1,8 @@
 use maybe::Maybe;
 use maybe::Maybe::Some;
 use maybe::Maybe::None;
+use check::panic;
+use check::check;
 
 struct<T> Vec {
     data: *T,
@@ -21,7 +23,8 @@ fun<T> Vec::<T>::push(*self, data: T) {
         self.cap += 8;
         mem::resize::<T>(&self.data, self.cap);
     }
-    self.data[self.len] = data;
+    let at = mem::ptr_at::<T>(self.data, self.len);
+    *at = data;
     self.len += 1;
 }
 
@@ -30,13 +33,15 @@ fun<T> Vec::<T>::pop(*self) -> Maybe::<T> {
         ret None::<T>();
     } else {
         self.len -= 1;
-        ret Some::<T>(self.data[self.len]);
+        let at = mem::ptr_at::<T>(self.data, self.len);
+        ret Some::<T>(*at);
     }
 }
 
 fun<T> Vec::<T>::at(*self, idx: usize) -> Maybe::<*T> {
     if idx < self.len {
-        ret Some::<*T>(&self.data[idx]);
+        let at = mem::ptr_at::<T>(self.data, self.len);
+        ret Some::<*T>(at);
     } else {
         ret None::<*T>();
     }
@@ -44,9 +49,10 @@ fun<T> Vec::<T>::at(*self, idx: usize) -> Maybe::<*T> {
 
 fun<T> Vec::<T>::get(*self, idx: usize) -> *T {
     if idx < self.len {
-        ret &self.data[idx];
+        let at = mem::ptr_at::<T>(self.data, self.len);
+        ret at;
     } else {
-        check::panic("Index out of bounds");
+        panic("Index out of bounds");
     }
 }
 
@@ -73,4 +79,11 @@ fun<T> Iter::<T>::next(*self) -> Maybe::<*T> {
     } else {
         ret None::<*T>();
     }
+}
+
+fun test_vec_new() {
+    let vec = Vec::new::<i32>();
+    vec.push(32);
+    let value = vec.pop();
+    check(value.get() == 32);
 }

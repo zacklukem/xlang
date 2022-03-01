@@ -1,3 +1,4 @@
+--* C realloc function
 fun realloc(ptr: *void, size: usize) -> *void {
     let out = null as *void;
     @c(var ptr: $ptr, var size: $size ; $out: var out ; "
@@ -6,6 +7,7 @@ fun realloc(ptr: *void, size: usize) -> *void {
     ret out;
 }
 
+--* C malloc function
 fun malloc(size: usize) -> *void {
     let out = null as *void;
     @c(var size: $size ; $out: var out ; "
@@ -14,12 +16,14 @@ fun malloc(size: usize) -> *void {
     ret out;
 }
 
+--* C free function
 fun free(ptr: *void) {
     @c(var ptr: $ptr ;; "
         free($ptr);
     ");
 }
 
+--* Get the size of the type T
 fun<T> sizeof() -> usize {
     let out = 0 as usize;
     @c(type T: $T; $out: var out ; "
@@ -28,11 +32,21 @@ fun<T> sizeof() -> usize {
     ret out;
 }
 
-
+--* Resize an array of type T.  This may change the pointer
 fun<T> resize(ptr: **T, len: usize) {
     *ptr = realloc(*ptr, len * sizeof::<T>()) as *T;
 }
 
+--* Allocate an array with size `len` (`len * sizeof::<T>()` bytes)
 fun<T> allocate(len: usize) -> *T {
     ret malloc(len * sizeof::<T>()) as *T;
+}
+
+--* Get a pointer by the given pointer offset
+fun<T> ptr_at(ptr: *T, idx: usize) -> *T {
+    let out = null as *T;
+    @c(var ptr: $ptr, var idx: $idx ; $out: var out ; "
+        $out = &$ptr[$idx];
+    ");
+    ret out;
 }

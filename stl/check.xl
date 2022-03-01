@@ -1,5 +1,9 @@
 
-extern fun panic(str: *[]u8);
+fun panic(str: *[]u8) {
+    @c( ; ; "
+        assert(false);
+    ");
+}
 
 fun check(expr: bool) {
     @c(var expr: $expr ; ; "

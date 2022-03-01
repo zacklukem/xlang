@@ -968,83 +968,168 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 ..
             }) => {
                 let def = self.module.get_def_by_id(*def_id);
-                if let ir::Def {
-                    kind:
-                        ir::DefKind::Struct {
-                            members,
-                            symbols,
-                            ty_params: struct_ty_params,
-                        },
-                    ..
-                } = def
-                {
-                    assert_eq!(instance_ty_params.len(), struct_ty_params.len());
-                    if let Some(def_id) = symbols.get(&rhs) {
-                        let def = self.module.get_def_by_id(*def_id);
-                        match &def.kind {
-                            ir::DefKind::Fun {
-                                params,
-                                return_type,
-                                ty_params: fun_ty_params,
-                                ..
-                            } => {
-                                // let self_type = match params.first() {
-                                //     Some((name, ty)) if name == "self" => ty,
-                                //     _ => todo!("err: func must have self"),
-                                // };
-                                // TODO: match self params to body
+                match def {
+                    ir::Def {
+                        kind:
+                            ir::DefKind::Struct {
+                                members,
+                                symbols,
+                                ty_params: struct_ty_params,
+                            },
+                        ..
+                    } => {
+                        assert_eq!(instance_ty_params.len(), struct_ty_params.len());
+                        if let Some(def_id) = symbols.get(&rhs) {
+                            let def = self.module.get_def_by_id(*def_id);
+                            match &def.kind {
+                                ir::DefKind::Fun {
+                                    params,
+                                    return_type,
+                                    ty_params: fun_ty_params,
+                                    ..
+                                } => {
+                                    // let self_type = match params.first() {
+                                    //     Some((name, ty)) if name == "self" => ty,
+                                    //     _ => todo!("err: func must have self"),
+                                    // };
+                                    // TODO: match self params to body
 
-                                assert_eq!(instance_ty_params.len(), fun_ty_params.len());
+                                    assert_eq!(instance_ty_params.len(), fun_ty_params.len());
 
-                                let typ_iter =
-                                    Iterator::zip(fun_ty_params.iter(), instance_ty_params.iter())
-                                        .map(|(a, b)| (a.clone(), *b))
-                                        .collect::<Vec<_>>();
+                                    let typ_iter = Iterator::zip(
+                                        fun_ty_params.iter(),
+                                        instance_ty_params.iter(),
+                                    )
+                                    .map(|(a, b)| (a.clone(), *b))
+                                    .collect::<Vec<_>>();
 
-                                let params = params
-                                    .iter()
-                                    .map(|(_, t)| self.replace_generics(*t, &typ_iter))
-                                    .collect();
+                                    let params = params
+                                        .iter()
+                                        .map(|(_, t)| self.replace_generics(*t, &typ_iter))
+                                        .collect();
 
-                                let return_type = self.replace_generics(*return_type, &typ_iter);
+                                    let return_type =
+                                        self.replace_generics(*return_type, &typ_iter);
 
-                                let ty = self
-                                    .module
-                                    .ty_ctx()
-                                    .int(ty::TyKind::Fun(params, return_type));
+                                    let ty = self
+                                        .module
+                                        .ty_ctx()
+                                        .int(ty::TyKind::Fun(params, return_type));
 
-                                let pass_ty_ref = lhs.ty().ptr(self.module.ty_ctx());
+                                    let pass_ty_ref = lhs.ty().ptr(self.module.ty_ctx());
 
-                                let pass_expr =
-                                    ir::ExprKind::Unary(ir::UnaryOp::Ref, Box::new(lhs));
-                                let pass_expr = ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
+                                    let pass_expr =
+                                        ir::ExprKind::Unary(ir::UnaryOp::Ref, Box::new(lhs));
+                                    let pass_expr =
+                                        ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
 
-                                // Struct::method
-                                let path = self.module.get_path_by_def_id(*def_id);
-                                let expr = ir::ExprKind::GlobalIdent(
-                                    path.clone(),
-                                    instance_ty_params.clone(),
-                                );
-                                let expr =
-                                    ir::Expr::new_pass(expr, span.clone(), ty, Box::new(pass_expr));
-                                return Ok(expr);
+                                    // Struct::method
+                                    let path = self.module.get_path_by_def_id(*def_id);
+                                    let expr = ir::ExprKind::GlobalIdent(
+                                        path.clone(),
+                                        instance_ty_params.clone(),
+                                    );
+                                    let expr = ir::Expr::new_pass(
+                                        expr,
+                                        span.clone(),
+                                        ty,
+                                        Box::new(pass_expr),
+                                    );
+                                    return Ok(expr);
+                                }
+                                _ => todo!("error"),
                             }
-                            _ => todo!("error"),
+                        } else if let Some(ty) = members.get(&rhs) {
+                            let generics =
+                                Iterator::zip(struct_ty_params.iter(), instance_ty_params.iter())
+                                    .map(|(a, b)| (a.clone(), *b))
+                                    .collect::<Vec<_>>();
+                            self.replace_generics(*ty, &generics)
+                        } else {
+                            self.err.err("Field not found in struct".into(), span);
+                            ty::err_ty(self.module.ty_ctx())
                         }
-                    } else if let Some(ty) = members.get(&rhs) {
-                        let generics =
-                            Iterator::zip(struct_ty_params.iter(), instance_ty_params.iter())
-                                .map(|(a, b)| (a.clone(), *b))
-                                .collect::<Vec<_>>();
-                        self.replace_generics(*ty, &generics)
-                    } else {
-                        self.err.err("Field not found in struct".into(), span);
+                    }
+                    ir::Def {
+                        kind:
+                            ir::DefKind::Enum {
+                                symbols,
+                                ty_params: struct_ty_params,
+                                ..
+                            },
+                        ..
+                    } => {
+                        assert_eq!(instance_ty_params.len(), struct_ty_params.len());
+                        if let Some(def_id) = symbols.get(&rhs) {
+                            let def = self.module.get_def_by_id(*def_id);
+                            match &def.kind {
+                                ir::DefKind::Fun {
+                                    params,
+                                    return_type,
+                                    ty_params: fun_ty_params,
+                                    ..
+                                } => {
+                                    // let self_type = match params.first() {
+                                    //     Some((name, ty)) if name == "self" => ty,
+                                    //     _ => todo!("err: func must have self"),
+                                    // };
+                                    // TODO: match self params to body
+
+                                    assert_eq!(instance_ty_params.len(), fun_ty_params.len());
+
+                                    let typ_iter = Iterator::zip(
+                                        fun_ty_params.iter(),
+                                        instance_ty_params.iter(),
+                                    )
+                                    .map(|(a, b)| (a.clone(), *b))
+                                    .collect::<Vec<_>>();
+
+                                    let params = params
+                                        .iter()
+                                        .map(|(_, t)| self.replace_generics(*t, &typ_iter))
+                                        .collect();
+
+                                    let return_type =
+                                        self.replace_generics(*return_type, &typ_iter);
+
+                                    let ty = self
+                                        .module
+                                        .ty_ctx()
+                                        .int(ty::TyKind::Fun(params, return_type));
+
+                                    let pass_ty_ref = lhs.ty().ptr(self.module.ty_ctx());
+
+                                    let pass_expr =
+                                        ir::ExprKind::Unary(ir::UnaryOp::Ref, Box::new(lhs));
+                                    let pass_expr =
+                                        ir::Expr::new(pass_expr, span.clone(), pass_ty_ref);
+
+                                    // Struct::method
+                                    let path = self.module.get_path_by_def_id(*def_id);
+                                    let expr = ir::ExprKind::GlobalIdent(
+                                        path.clone(),
+                                        instance_ty_params.clone(),
+                                    );
+                                    let expr = ir::Expr::new_pass(
+                                        expr,
+                                        span.clone(),
+                                        ty,
+                                        Box::new(pass_expr),
+                                    );
+                                    return Ok(expr);
+                                }
+                                _ => todo!("error"),
+                            }
+                        } else {
+                            self.err.err("Field not found in enum".into(), span);
+                            ty::err_ty(self.module.ty_ctx())
+                        }
+                    }
+                    _ => {
+                        self.err
+                            .err("The dot operator can only be used on a struct".into(), span);
                         ty::err_ty(self.module.ty_ctx())
                     }
-                } else {
-                    self.err
-                        .err("The dot operator can only be used on a struct".into(), span);
-                    ty::err_ty(self.module.ty_ctx())
                 }
             }
             _ => {
