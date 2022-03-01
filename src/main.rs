@@ -21,5 +21,8 @@ pub mod ty_mangle;
 lalrpop_mod!(#[allow(clippy::all)] pub parser);
 
 fn main() {
+    let start = std::time::Instant::now();
     frontend::run();
+    let end = start.elapsed();
+    println!("\n{:.3}s", end.as_secs_f32());
 }

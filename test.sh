@@ -33,7 +33,8 @@ do
     ERR=$?
 
     if [ $ERR -eq 0 ]; then
-        printf "\033[32mtranslate\033[0m "
+        XLANG_TIME=$(cat $TMPFILE | tail -1)
+        printf "\033[32mtranslate($XLANG_TIME)\033[0m "
     elif [ $ERR -eq 101 ]; then
         FAILED=1
         echo -e "\033[31mTRANSLATE_PANIC\033[0m "
