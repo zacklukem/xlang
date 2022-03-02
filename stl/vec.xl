@@ -85,5 +85,5 @@ fun test_vec_new() {
     vec.push(32);
     vec.get(0);
     let value = vec.pop();
-    check::check(value.get() == 32);
+    @check(value.get() == 32);
 }

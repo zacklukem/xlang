@@ -9,12 +9,13 @@ use std::rc::Rc;
 
 pub struct Source {
     pub source_string: String,
+    pub file_name: String,
     /// Indices of first char in each line
     line_starts: Vec<usize>,
 }
 
 impl Source {
-    pub fn new(source_string: String) -> Source {
+    pub fn new(file_name: String, source_string: String) -> Source {
         let mut line_starts = Vec::new();
 
         {
@@ -28,6 +29,7 @@ impl Source {
 
         Source {
             source_string,
+            file_name,
             line_starts,
         }
     }
@@ -42,7 +44,10 @@ impl Source {
             .unwrap_or(self.source_string.len());
         let line = &self.source_string[line_start..line_end];
         let line = line.trim_end();
-        println!("     --> {}: {}:{}", kind, line_num, col);
+        println!(
+            "     --> {}: {}:{}:{}",
+            kind, &self.file_name, line_num, col
+        );
         print!("      | \n{:>5} | {}\n      | ", line_num, line);
         println!(
             "{:left$}{:^>width$} {}\n      |",
@@ -77,19 +82,19 @@ pub struct Span {
 impl Span {
     pub fn dummy() -> Span {
         Span {
-            source: Rc::new(Source::new(String::new())),
+            source: Rc::new(Source::new(String::new(), String::new())),
             start: 0,
             end: 0,
             macro_str: None,
         }
     }
 
-    pub fn from_macro_str(source: &Rc<Source>, s: &str) -> Span {
+    pub fn from_macro_str(s: &str, span: &Span) -> Span {
         Span {
-            source: source.clone(),
-            start: 0,
-            end: 0,
-            macro_str: Some(s.into()),
+            source: span.source.clone(),
+            start: span.start,
+            end: span.end,
+            macro_str: Some(s.to_owned()),
         }
     }
 
@@ -155,9 +160,9 @@ impl Ident {
     pub fn str(&self) -> &str {
         self.span.str()
     }
-    pub fn from_macro_str(source: &Rc<Source>, s: &str) -> Ident {
+    pub fn from_macro_str(s: &str, span: &Span) -> Ident {
         Ident {
-            span: Span::from_macro_str(source, s),
+            span: Span::from_macro_str(s, span),
         }
     }
 }

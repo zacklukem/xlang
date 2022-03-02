@@ -1,9 +1,11 @@
 use crate::ast::{
-    self, Expr, Ident, MacroCall, Module, Name, Span, SpanBox, Spanned, Stmt, TopStmt,
+    self, Expr, Ident, IntegerSpecifier, MacroCall, Module, Name, Source, Span, SpanBox, Spanned,
+    Stmt, TopStmt,
 };
 use crate::error_context::ErrorContext;
 use either::Either;
 use std::cell::RefCell;
+use std::rc::Rc;
 
 pub fn expand_macros(ast_module: &Module, err: &mut ErrorContext) {
     let mut exp = MacroExpander { ast_module, err };
@@ -158,41 +160,88 @@ impl<'a> MacroExpander<'a> {
     fn expand_macro_call(&mut self, cell: &RefCell<Either<MacroCall, SpanBox<Expr>>>) {
         let macro_call = cell.borrow().clone().left().unwrap();
         if macro_call.name.str() == "@panic" {
+            let span = &macro_call.name;
             let (line, col) = macro_call.name.line_col();
-            let source = macro_call.left_paren.source.clone();
-            assert_eq!(macro_call.arguments.len(), 1);
-            *cell.borrow_mut() = Either::Right(Box::new(Spanned {
-                value: Expr::Call {
-                    expr: Box::new(Spanned {
-                        value: Expr::Ident(Name::Namespace(
-                            Ident::from_macro_str(&source, "check"),
-                            Vec::new(),
-                            Span::from_macro_str(&source, "::"),
-                            Box::new(Spanned {
-                                value: Name::Ident(
-                                    Ident::from_macro_str(&source, "panic"),
-                                    Vec::new(),
-                                ),
-                                span: Span::from_macro_str(&source, "panic"),
-                            }),
-                        )),
-                        span: Span::from_macro_str(&source, "check::panic"),
-                    }),
+            let file_name = &macro_call.name.source.file_name;
+            assert!(macro_call.arguments.len() == 0 || macro_call.arguments.len() == 1);
+            *cell.borrow_mut() = Either::Right(Box::new(spanned(
+                span,
+                Expr::Call {
+                    expr: Box::new(make_ast_ident(span, &["check", "panic_raw"])),
                     left_paren: macro_call.left_paren,
                     arguments: vec![
-                        macro_call.arguments[0].clone(),
-                        Spanned {
-                            value: Expr::String(Span::from_macro_str(
-                                &source,
-                                &format!(r#""{}:{}""#, line, col),
-                            )),
-                            span: Span::from_macro_str(&source, "<macro expand>"),
-                        },
+                        macro_call
+                            .arguments
+                            .get(0)
+                            .cloned()
+                            .unwrap_or_else(|| make_ast_string(span, "Explicit panic")),
+                        make_ast_string(span, &format!(r"{file_name}:{line}:{col}")),
                     ],
                     right_paren: macro_call.right_paren,
                 },
-                span: Span::from_macro_str(&source, "<macro expand>"),
-            }));
+            )));
+        } else if macro_call.name.str() == "@check" {
+            let span = &macro_call.name;
+            let (line, col) = macro_call.name.line_col();
+            let file_name = &macro_call.name.source.file_name;
+
+            assert!(macro_call.arguments.len() == 1 || macro_call.arguments.len() == 2);
+            *cell.borrow_mut() = Either::Right(Box::new(spanned(
+                span,
+                Expr::Call {
+                    expr: Box::new(make_ast_ident(span, &["check", "assert_raw"])),
+                    left_paren: macro_call.left_paren,
+                    arguments: vec![
+                        macro_call.arguments[0].clone(),
+                        macro_call
+                            .arguments
+                            .get(1)
+                            .cloned()
+                            .unwrap_or_else(|| make_ast_string(span, "Assertion failed")),
+                        make_ast_string(span, &format!(r"{file_name}:{line}:{col}")),
+                    ],
+                    right_paren: macro_call.right_paren,
+                },
+            )));
         }
     }
+}
+
+fn spanned<T>(span: &Span, value: T) -> Spanned<T> {
+    Spanned {
+        value,
+        span: span.clone(),
+    }
+}
+
+fn make_ast_ident(span: &Span, path: &[&str]) -> Spanned<Expr> {
+    spanned(span, Expr::Ident(make_ast_name(span, path)))
+}
+
+fn make_ast_string(span: &Span, s: &str) -> Spanned<Expr> {
+    spanned(
+        span,
+        Expr::String(Span::from_macro_str(&format!(r#""{}""#, s), span)),
+    )
+}
+
+fn make_ast_name(span: &Span, path: &[&str]) -> Name {
+    assert!(!path.is_empty());
+    let mut iter = path.iter().rev();
+    let mut out = Name::Ident(
+        Ident::from_macro_str(iter.next().unwrap(), span),
+        Vec::new(),
+    );
+    for segment in iter {
+        out = Name::Namespace(
+            Ident::from_macro_str(segment, span),
+            Vec::new(),
+            span.clone(),
+            Box::new(Spanned {
+                value: out,
+                span: span.clone(),
+            }),
+        )
+    }
+    out
 }

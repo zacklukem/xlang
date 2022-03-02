@@ -1,12 +1,13 @@
 
-fun panic(str: *[]u8,line_col: *[]u8) {
-    @c( ; ; "
-        assert(false);
+fun panic_raw(str: *[]u8,line_col: *[]u8) {
+    @c(var str: $str, var line_col: $line_col ; ; "
+        __print_panic_message__($str, $line_col);
+        exit(101);
     ");
 }
 
-fun check(expr: bool) {
-    @c(var expr: $expr ; ; "
-        assert($expr);
-    ");
+fun assert_raw(expr: bool, str: *[]u8, line_col: *[]u8) {
+    if !expr {
+        panic_raw(str, line_col);
+    }
 }
