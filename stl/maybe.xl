@@ -25,7 +25,7 @@ fun<T, U> Maybe::<T>::zip(*self, other: Maybe::<U>) -> Maybe::<(T, U)> {
 fun<T> Maybe::<T>::get(*self) -> T {
     case *self {
     | Some(value) -> ret value;
-    | None -> check::panic("Tried to get None");
+    | None -> @panic("Tried to get None");
     }
 }
 

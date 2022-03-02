@@ -1,3 +1,4 @@
+use crate::macro_expansion;
 use crate::{ast, codegen, error_context as ec, ir, mod_gen, monomorphize, parser, ty};
 use clap::Parser;
 use std::collections::HashMap;
@@ -53,7 +54,7 @@ pub fn run() {
         let mut generators = Vec::new();
 
         for file in args.input_files() {
-            generators.push(get_mod(file));
+            generators.push(get_mod(file, &mut err));
         }
 
         gen_ir_on(&mut module, &mut err, &mut generators);
@@ -79,12 +80,12 @@ pub fn run() {
     codegen.gen(args.output_file()).unwrap();
 }
 
-fn parse_source<P: AsRef<path::Path>>(filename: P) -> ast::Module {
+fn parse_source<P: AsRef<path::Path>>(filename: P, err: &mut ec::ErrorContext) -> ast::Module {
     let source_string = std::fs::read_to_string(filename).unwrap();
     let source = std::rc::Rc::new(ast::Source::new(source_string));
 
     let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
-    match ast_module {
+    let ast_module = match ast_module {
         Err(lalrpop_util::ParseError::UnrecognizedToken {
             token: (start, token, end),
             expected,
@@ -99,18 +100,21 @@ fn parse_source<P: AsRef<path::Path>>(filename: P) -> ast::Module {
             std::process::exit(1)
         }
         Ok(ast_module) => ast_module,
-    }
+    };
+    macro_expansion::expand_macros(&ast_module, err);
+    ast_module
 }
 
 fn get_mod<'mg, 'ast, 'ty, P: AsRef<path::Path>>(
     file: P,
+    err: &mut ec::ErrorContext,
 ) -> (ast::Module, String, HashMap<String, ir::Path>) {
     let file_name: String = {
         let file_name = file.as_ref().file_name().unwrap();
         file_name.to_str().unwrap().into()
     };
     let mod_name = &file_name[..file_name.len() - 3];
-    let ast_module = parse_source(file);
+    let ast_module = parse_source(file, err);
 
     (ast_module, mod_name.into(), HashMap::new())
 }
@@ -173,7 +177,7 @@ fn compile_stl<'ty>(stl: &str, module: &mut ir::Module<'ty>, err: &mut ec::Error
         let file = entry.path();
         if let Some(ext) = file.extension() {
             if ext == "xl" {
-                mod_generators.push(get_mod(file));
+                mod_generators.push(get_mod(file, err));
             }
         }
     }

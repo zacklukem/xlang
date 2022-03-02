@@ -1,5 +1,7 @@
 use crate::ast::*;
 use std::rc::Rc;
+use either::Either;
+use std::cell::RefCell;
 
 grammar(source: &Rc<Source>);
 
@@ -298,6 +300,9 @@ PrimaryExpr: Expr = {
 
     SpanBox<PrimaryExpr> Span<"."> Ident => Expr::Dot(<>),
 
+    <name: Span<r#"@[a-zA-Z_][a-zA-Z0-9_]*"#>> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
+        <right_paren: Span<")">> => Expr::MacroCall(RefCell::new(Either::Left(MacroCall { <> }))),
+
     <expr: SpanBox<PrimaryExpr>> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
         <right_paren: Span<")">> => Expr::Call { <> },
 
@@ -383,7 +388,7 @@ Vec1<T, Sep>: Vec<T> = {
 
 SpanBox<T>: SpanBox<T> = {
     <start: @L> <val: T> <end: @R> => Box::new(Spanned {
-        span: Span {start, end, source: source.clone()},
+        span: Span {macro_str: None, start, end, source: source.clone()},
         value: val,
     })
 };
@@ -394,13 +399,13 @@ Box<T>: Box<T> = {
 
 Spanned<T>: Spanned<T> = {
     <start: @L> <val: T> <end: @R> => Spanned {
-        span: Span {start, end, source: source.clone()},
+        span: Span {macro_str: None, start, end, source: source.clone()},
         value: val,
     }
 };
 
 Span<T>: Span = {
-    <start: @L> T <end: @R> => Span {start, end, source: source.clone()},
+    <start: @L> T <end: @R> => Span {macro_str: None, start, end, source: source.clone()},
 };
 
 // Num:  = <s:r"[0-9]+"> => i32::from_str(s).unwrap();

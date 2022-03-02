@@ -3,6 +3,8 @@
 //! Contains a faithful representation of the source code with `Span`s to mark
 //! the source code locations to ast values
 
+use either::Either;
+use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct Source {
@@ -67,6 +69,7 @@ impl Source {
 #[derive(Clone)]
 pub struct Span {
     pub source: Rc<Source>,
+    pub macro_str: Option<String>,
     pub start: usize,
     pub end: usize,
 }
@@ -77,6 +80,16 @@ impl Span {
             source: Rc::new(Source::new(String::new())),
             start: 0,
             end: 0,
+            macro_str: None,
+        }
+    }
+
+    pub fn from_macro_str(source: &Rc<Source>, s: &str) -> Span {
+        Span {
+            source: source.clone(),
+            start: 0,
+            end: 0,
+            macro_str: Some(s.into()),
         }
     }
 
@@ -89,7 +102,11 @@ impl Span {
     }
 
     pub fn str(&self) -> &str {
-        &self.source.source_string[self.start..self.end]
+        if let Some(string) = &self.macro_str {
+            &string
+        } else {
+            &self.source.source_string[self.start..self.end]
+        }
     }
 
     pub fn var_str(&self) -> String {
@@ -137,6 +154,11 @@ pub struct Ident {
 impl Ident {
     pub fn str(&self) -> &str {
         self.span.str()
+    }
+    pub fn from_macro_str(source: &Rc<Source>, s: &str) -> Ident {
+        Ident {
+            span: Span::from_macro_str(source, s),
+        }
     }
 }
 
@@ -406,6 +428,14 @@ pub enum FloatSpecifier {
 }
 
 #[derive(Debug, Clone)]
+pub struct MacroCall {
+    pub name: Span,
+    pub left_paren: Span,
+    pub arguments: SpanVec<Expr>,
+    pub right_paren: Span,
+}
+
+#[derive(Debug, Clone)]
 pub enum Expr {
     Ident(Name),
     Integer(Span, IntegerSpecifier),
@@ -433,6 +463,8 @@ pub enum Expr {
         else_tok: Span,
         else_expr: SpanBox<Expr>,
     },
+
+    MacroCall(RefCell<Either<MacroCall, SpanBox<Expr>>>),
 
     // expr(index, ...)
     Call {

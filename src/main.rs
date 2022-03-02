@@ -13,6 +13,7 @@ pub mod intern;
 pub mod ir;
 pub mod ir_display;
 pub mod ir_gen;
+pub mod macro_expansion;
 pub mod mod_gen;
 pub mod monomorphize;
 pub mod ty;

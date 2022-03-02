@@ -2,7 +2,6 @@ use maybe::Maybe;
 use maybe::Maybe::Some;
 use maybe::Maybe::None;
 use check::panic;
-use check::check;
 
 struct<T> Vec {
     data: *T,
@@ -52,7 +51,7 @@ fun<T> Vec::<T>::get(*self, idx: usize) -> *T {
         let at = mem::ptr_at::<T>(self.data, self.len);
         ret at;
     } else {
-        panic("Index out of bounds");
+        @panic("Index out of bounds");
     }
 }
 
@@ -84,6 +83,7 @@ fun<T> Iter::<T>::next(*self) -> Maybe::<*T> {
 fun test_vec_new() {
     let vec = Vec::new::<i32>();
     vec.push(32);
+    vec.get(0);
     let value = vec.pop();
-    check(value.get() == 32);
+    check::check(value.get() == 32);
 }

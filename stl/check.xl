@@ -1,5 +1,5 @@
 
-fun panic(str: *[]u8) {
+fun panic(str: *[]u8,line_col: *[]u8) {
     @c( ; ; "
         assert(false);
     ");

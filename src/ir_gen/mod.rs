@@ -1571,6 +1571,11 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 expr_span.clone(),
                 ty::void_ty(self.module.ty_ctx()).ptr(self.module.ty_ctx()),
             ),
+            ast::Expr::MacroCall(cell) => {
+                let expr = cell.borrow();
+                let expr = expr.as_ref().right().unwrap();
+                self.gen_expr(expr.as_ref())?
+            }
         };
         Ok(expr)
     }
