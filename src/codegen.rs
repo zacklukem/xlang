@@ -252,9 +252,9 @@ where
                 write!(self.header_writer, "tuple")?;
                 for ty in tys {
                     let mangle = ty.mangle();
-                    write!(self.header_writer, "_{}", mangle)?;
+                    write!(self.header_writer, "_{mangle}")?;
                 }
-                writeln!(self.header_writer, " {};", mangle)?;
+                writeln!(self.header_writer, " {mangle};")?;
 
                 writeln!(self.header_writer, "#endif")?;
             }
@@ -267,7 +267,7 @@ where
                 let path = self.module.get_path_by_def_id(*def_id);
                 let path = mangle_path(path);
                 let path_name = path.clone() + "_k";
-                writeln!(self.header_writer, "enum {0} {{", path_name)?;
+                writeln!(self.header_writer, "enum {path_name} {{")?;
                 for variant in variants.keys() {
                     writeln!(self.header_writer, "    {}_{}_k,", path.clone(), variant)?;
                 }
@@ -281,11 +281,17 @@ where
             match &def.kind {
                 DefKind::Struct { .. } => {
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
-                    writeln!(self.header_writer, "typedef struct {0} {0}_t;", path_name)?;
+                    writeln!(
+                        self.header_writer,
+                        "typedef struct {path_name} {path_name}_t;"
+                    )?;
                 }
                 DefKind::Enum { .. } => {
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
-                    writeln!(self.header_writer, "typedef struct {0} {0}_t;", path_name)?;
+                    writeln!(
+                        self.header_writer,
+                        "typedef struct {path_name} {path_name}_t;"
+                    )?;
                 }
                 _ => (),
             }
@@ -308,7 +314,7 @@ where
                 let generics = zip_clone_vec(ty_params, &mono.ty_params);
                 let return_type = replace_generics(self.module.ty_ctx(), *return_type, &generics);
                 let return_type = return_type.to_c_type(None);
-                write!(self.header_writer, "{} {}(", return_type, fun_name)?;
+                write!(self.header_writer, "{return_type} {fun_name}(")?;
                 for (i, (name, param)) in params.iter().enumerate() {
                     let param = replace_generics(self.module.ty_ctx(), *param, &generics);
                     write!(self.header_writer, "{}", param.to_c_type(Some(name)))?;
@@ -434,21 +440,21 @@ where
                 Either::Left(ty) => {
                     if let TyKind::Tuple(tys) = ty.0 .0 {
                         let mangle = ty.to_c_type(None);
-                        writeln!(self.header_writer, "#ifndef XLANG_DEFINE_{}", mangle)?;
-                        writeln!(self.header_writer, "#define XLANG_DEFINE_{}", mangle)?;
-                        writeln!(self.header_writer, "// Type index: {}", idx)?;
+                        writeln!(self.header_writer, "#ifndef XLANG_DEFINE_{mangle}")?;
+                        writeln!(self.header_writer, "#define XLANG_DEFINE_{mangle}")?;
+                        writeln!(self.header_writer, "// Type index: {idx}")?;
                         write!(self.header_writer, "struct ")?;
 
                         write!(self.header_writer, "tuple")?;
                         for ty in tys {
                             let mangle = ty.mangle();
-                            write!(self.header_writer, "_{}", mangle)?;
+                            write!(self.header_writer, "_{mangle}")?;
                         }
                         writeln!(self.header_writer, " {{")?;
                         for (i, ty) in tys.iter().enumerate() {
                             let ident = format!("_{}", i);
                             let def = ty.to_c_type(Some(&ident));
-                            writeln!(self.header_writer, "    {};", def)?;
+                            writeln!(self.header_writer, "    {def};")?;
                         }
                         writeln!(self.header_writer, "}};")?;
 
@@ -486,14 +492,14 @@ where
 
                             let generics = zip_clone_vec(ty_params, &mono.ty_params);
 
-                            writeln!(self.header_writer, "// Type index: {}", idx)?;
-                            writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
-                            writeln!(self.header_writer, "    enum {} kind;", kind_type_name)?;
+                            writeln!(self.header_writer, "// Type index: {idx}")?;
+                            writeln!(self.header_writer, "\nstruct {path_name} {{")?;
+                            writeln!(self.header_writer, "    enum {kind_type_name} kind;")?;
                             writeln!(self.header_writer, "    union {{")?;
                             for (name, ty) in variants {
                                 let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
                                 let ty = ty.to_c_type(Some(name));
-                                writeln!(self.header_writer, "        {};", ty)?;
+                                writeln!(self.header_writer, "        {ty};")?;
                             }
                             writeln!(self.header_writer, "    }};")?;
                             writeln!(self.header_writer, "}};")?;
@@ -528,7 +534,7 @@ where
                     let return_type =
                         replace_generics(self.module.ty_ctx(), *return_type, &generics);
                     let return_type = return_type.to_c_type(None);
-                    write!(self.source_writer, "{} {}(", return_type, fun_name)?;
+                    write!(self.source_writer, "{return_type} {fun_name}(")?;
                     for (i, (name, param)) in params.iter().enumerate() {
                         let param = replace_generics(self.module.ty_ctx(), *param, &generics);
                         write!(self.source_writer, "{}", param.to_c_type(Some(name)))?;
@@ -543,7 +549,7 @@ where
                         for (name, ty) in &fun.variable_defs {
                             let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
                             let ty = ty.to_c_type(Some(name));
-                            writeln!(self.source_writer, "    {};", ty)?;
+                            writeln!(self.source_writer, "    {ty};")?;
                         }
 
                         self.stmt(&fun.block, &generics)?;
@@ -563,7 +569,7 @@ where
 
                         let mut initializers = String::new();
                         for i in 0..params.len() {
-                            initializers += &format!("_{}", i);
+                            initializers += &format!("_{i}");
                             if i < params.len() - 1 {
                                 initializers += ", ";
                             }
@@ -633,7 +639,7 @@ where
                 self.stmt(block, ty_params)?;
             }
             Labeled(label, stmt) => {
-                writeln!(self.source_writer, "{}:", label)?;
+                writeln!(self.source_writer, "{label}:")?;
                 if let Some(stmt) = stmt {
                     indent!();
                     self.stmt(stmt, ty_params)?;
@@ -666,7 +672,7 @@ where
                 write!(self.source_writer, ";")?;
             }
             Goto(label) => {
-                write!(self.source_writer, "goto {};", label)?;
+                write!(self.source_writer, "goto {label};")?;
             }
             Expr(expr) => {
                 self.expr(expr, ty_params)?;
@@ -745,7 +751,7 @@ where
                     let ty = generics[0];
                     let ty = replace_generics(self.module.ty_ctx(), ty, ty_params);
                     let ty = ty.to_c_type(None);
-                    write!(self.f(), "sizeof({})", ty)?;
+                    write!(self.f(), "sizeof({ty})")?;
                 } else {
                     panic!()
                 }
@@ -835,7 +841,7 @@ where
                 if !ty.is_integer_ukn() {
                     let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);
                     let ty = ty.to_c_type(None);
-                    write!(self.f(), "({})(", ty)?;
+                    write!(self.f(), "({ty})(")?;
                     self.expr(expr, ty_params)?;
                     write!(self.f(), ")")?;
                 } else {
@@ -879,7 +885,7 @@ where
                 //todo
                 let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);
                 let ct = ty.to_c_type(None);
-                write!(self.f(), "(({}){{", ct)?;
+                write!(self.f(), "(({ct}){{")?;
                 for (i, (name, value)) in members.iter().enumerate() {
                     write!(self.f(), ".{} = ", name)?;
                     self.expr(value, ty_params)?;
@@ -899,8 +905,8 @@ impl FloatSpecifier {
     fn to_c(&self) -> String {
         use FloatSpecifier::*;
         match self {
-            F32(val) => format!("{}f", val),
-            F64(val) => format!("{}", val),
+            F32(val) => format!("{val}f"),
+            F64(val) => format!("{val}"),
         }
     }
 }
@@ -909,17 +915,17 @@ impl IntegerSpecifier {
     fn to_c(&self) -> String {
         use IntegerSpecifier::*;
         match self {
-            I8(val) => format!("{}", val),
-            I16(val) => format!("{}", val),
-            I32(val) => format!("{}", val),
-            I64(val) => format!("{}", val),
-            U8(val) => format!("{}", val),
-            U16(val) => format!("{}", val),
-            U32(val) => format!("{}", val),
-            U64(val) => format!("{}", val),
-            USize(val) => format!("{}", val),
-            Signed(val) => format!("{}", val),
-            Unsigned(val) => format!("{}", val),
+            I8(val) => format!("{val}"),
+            I16(val) => format!("{val}"),
+            I32(val) => format!("{val}"),
+            I64(val) => format!("{val}"),
+            U8(val) => format!("{val}"),
+            U16(val) => format!("{val}"),
+            U32(val) => format!("{val}"),
+            U64(val) => format!("{val}"),
+            USize(val) => format!("{val}"),
+            Signed(val) => format!("{val}"),
+            Unsigned(val) => format!("{val}"),
         }
     }
 }
