@@ -1,3 +1,4 @@
+use crate::lexer;
 use crate::macro_expansion;
 use crate::{ast, codegen, error_context as ec, ir, mod_gen, monomorphize, parser, ty};
 use clap::Parser;
@@ -85,14 +86,15 @@ fn parse_source<P: AsRef<path::Path>>(filename: P, err: &mut ec::ErrorContext) -
     let source_string = std::fs::read_to_string(filename).unwrap();
     let source = std::rc::Rc::new(ast::Source::new(filename_str, source_string));
 
-    let ast_module = parser::ModuleParser::new().parse(&source, &source.source_string[..]);
+    let lexer = lexer::Lexer::new(&source.source_string);
+    let ast_module = parser::ModuleParser::new().parse(&source, lexer);
     let ast_module = match ast_module {
         Err(lalrpop_util::ParseError::UnrecognizedToken {
             token: (start, token, end),
             expected,
         }) => {
             let expected = expected.join(" | ");
-            let msg = format!(r#"Got: "{token}". Expected: [{expected}]"#);
+            let msg = format!(r#"Got: "{token:?}". Expected: [{expected}]"#);
             source.print_msg((start, end), &msg, "Error");
             std::process::exit(1)
         }

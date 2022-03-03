@@ -1,4 +1,5 @@
 use crate::ast::*;
+use crate::lexer;
 use std::rc::Rc;
 use either::Either;
 use std::cell::RefCell;
@@ -6,7 +7,7 @@ use std::cell::RefCell;
 grammar(source: &Rc<Source>);
 
 Ident: Ident = {
-    <span: Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> => Ident { span }
+    <span: Span<"_Ident">> => Ident { span }
 };
 
 NameTypeParams: SpanVec<Type> = {
@@ -54,7 +55,7 @@ pub Module: Module = {
 }
 
 DeclTypeParams: Vec<Span> = {
-    "<" <Vec0<Span<r"[_a-zA-Z][_a-zA-Z0-9]*">, ",">> ">" => <>,
+    "<" <Vec0<Span<"_Ident">, ",">> ">" => <>,
 }
 
 EnumVariant: (Ident, SpanVec<Type>) = {
@@ -123,13 +124,13 @@ InlineCParamType: InlineCParamType = {
 }
 
 InlineCInParam: (InlineCParamType, Span, Span) = {
-    <InlineCParamType> <Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> ":"
-        <Span<r"\$[_a-zA-Z][_a-zA-Z0-9]*">> => (<>)
+    <InlineCParamType> <Span<"_Ident">> ":"
+        <Span<"_InlineCReplacementIdent">> => (<>)
 }
 
 InlineCOutParam: (Span, InlineCParamType, Span) = {
-    <Span<r"\$[_a-zA-Z][_a-zA-Z0-9]*">> ":" <InlineCParamType>
-        <Span<r"[_a-zA-Z][_a-zA-Z0-9]*">> => (<>)
+    <Span<"_InlineCReplacementIdent">> ":" <InlineCParamType>
+        <Span<"_Ident">> => (<>)
 }
 
 pub Stmt: Stmt = {
@@ -153,8 +154,8 @@ pub Stmt: Stmt = {
 
     <SpanBox<Expr>> ";" => Stmt::Expr(<>),
 
-    <at_c: Span<"@c">> "(" <inputs: Vec0<InlineCInParam, ",">> ";" <outputs: Vec0<InlineCOutParam, ",">> ";"
-        <code: Span<r#""[^"]*""#>> ")" ";"=> Stmt::InlineC {<>},
+    <at_c: Span<"_InlineCMacroIdent">> "(" <inputs: Vec0<InlineCInParam, ",">> ";" <outputs: Vec0<InlineCOutParam, ",">> ";"
+        <code: Span<"_String">> ")" ";"=> Stmt::InlineC {<>},
 
     IfStmt
 };
@@ -284,8 +285,8 @@ StructMember: (Ident, SpanBox<Expr>) = {
 PrimaryExpr: Expr = {
     Name => Expr::Ident(<>),
     <span: Span<"self">> => Expr::Ident(Name::Ident(Ident { span }, Vec::new())),
-    Span<r"[0-9]+"> => Expr::Integer(<>, IntegerSpecifier::None),
-    Span<r"[0-9]+\.[0-9]*"> => Expr::Float(<>, FloatSpecifier::None),
+    Span<"_Integer"> => Expr::Integer(<>, IntegerSpecifier::None),
+    Span<"_Float"> => Expr::Float(<>, FloatSpecifier::None),
     <open_paren: Span<"(">> <mut members: Vec0<Spanned<Expr>, ",">> <close_paren: Span<")">> => {
         match members.len() {
             0 => panic!("error"),
@@ -296,11 +297,11 @@ PrimaryExpr: Expr = {
     Span<"null"> => Expr::Null(<>),
     Span<"true"> => Expr::Bool(<>, true),
     Span<"false"> => Expr::Bool(<>, false),
-    Span<r#""[^"]*""#> => Expr::String(<>),
+    Span<"_String"> => Expr::String(<>),
 
     SpanBox<PrimaryExpr> Span<"."> Ident => Expr::Dot(<>),
 
-    <name: Span<r#"@[a-zA-Z_][a-zA-Z0-9_]*"#>> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
+    <name: Span<"_MacroIdent">> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
         <right_paren: Span<")">> => Expr::MacroCall(RefCell::new(Either::Left(MacroCall { <> }))),
 
     <expr: SpanBox<PrimaryExpr>> <left_paren: Span<"(">> <arguments: Vec0<Spanned<Expr>, ",">>
@@ -408,12 +409,107 @@ Span<T>: Span = {
     <start: @L> T <end: @R> => Span {macro_str: None, start, end, source: source.clone()},
 };
 
-// Num:  = <s:r"[0-9]+"> => i32::from_str(s).unwrap();
+extern {
+    type Location = usize;
+    type Error = lexer::LexerError;
+
+    enum lexer::Token {
+        "_Ident" => lexer::Token::Ident,
+        "_MacroIdent" => lexer::Token::MacroIdent,
+        "_InlineCMacroIdent" => lexer::Token::InlineCMacroIdent,
+        "_InlineCReplacementIdent" => lexer::Token::InlineCReplacementIdent,
+        "_Float" => lexer::Token::Float,
+        "_Integer" => lexer::Token::Integer,
+        "_String" => lexer::Token::String,
+
+        ";" => lexer::Token::Semi,
+        "," => lexer::Token::Comma,
+        "->" => lexer::Token::Arrow,
+        "::" => lexer::Token::ColonColon,
+        ":" => lexer::Token::Colon,
+        "(" => lexer::Token::OpenParen,
+        ")" => lexer::Token::CloseParen,
+        "[" => lexer::Token::OpenBrack,
+        "]" => lexer::Token::CloseBrack,
+        "{" => lexer::Token::OpenBrace,
+        "}" => lexer::Token::CloseBrace,
+        "<" => lexer::Token::Lt,
+        ">" => lexer::Token::Gt,
+        "<=" => lexer::Token::LtEq,
+        ">=" => lexer::Token::GtEq,
+        "==" => lexer::Token::EqEq,
+        "!=" => lexer::Token::BangEq,
+        "=" => lexer::Token::Eq,
+        "+=" => lexer::Token::PlusEq,
+        "-=" => lexer::Token::MinusEq,
+        "*=" => lexer::Token::StarEq,
+        "/=" => lexer::Token::SlashEq,
+        "%=" => lexer::Token::PercentEq,
+        "^=" => lexer::Token::CaretEq,
+        "&=" => lexer::Token::AndEq,
+        "|=" => lexer::Token::BarEq,
+        "||" => lexer::Token::BarBar,
+        "&&" => lexer::Token::AndAnd,
+        "|" => lexer::Token::Bar,
+        "&" => lexer::Token::And,
+        "^" => lexer::Token::Caret,
+        "<<" => lexer::Token::LtLt,
+        ">>" => lexer::Token::GtGt,
+        "+" => lexer::Token::Plus,
+        "-" => lexer::Token::Minus,
+        "*" => lexer::Token::Star,
+        "/" => lexer::Token::Slash,
+        "%" => lexer::Token::Percent,
+        ".." => lexer::Token::DotDot,
+        "@.." => lexer::Token::AtDotDot,
+        "..@" => lexer::Token::DotDotAt,
+        "@@" => lexer::Token::AtAt,
+        "!" => lexer::Token::Bang,
+        "~" => lexer::Token::Tilde,
+        "." => lexer::Token::Dot,
 
 
-match {
-    r"\s*" => { },
-    r"--[^\n\r]*[\n\r]*" => { },
-} else {
-    _
+        "self" => lexer::Token::SelfKey,
+        "mut" => lexer::Token::MutKey,
+        "finally" => lexer::Token::FinallyKey,
+        "use" => lexer::Token::UseKey,
+        "extern" => lexer::Token::ExternKey,
+        "pub" => lexer::Token::PubKey,
+        "fun" => lexer::Token::FunKey,
+        "struct" => lexer::Token::StructKey,
+        "enum" => lexer::Token::EnumKey,
+        "if" => lexer::Token::IfKey,
+        "else" => lexer::Token::ElseKey,
+        "var" => lexer::Token::VarKey,
+        "type" => lexer::Token::TypeKey,
+        "case" => lexer::Token::CaseKey,
+        "while" => lexer::Token::WhileKey,
+        "loop" => lexer::Token::LoopKey,
+        "for" => lexer::Token::ForKey,
+        "let" => lexer::Token::LetKey,
+        "ret" => lexer::Token::RetKey,
+        "continue" => lexer::Token::ContinueKey,
+        "break" => lexer::Token::BreakKey,
+        "then" => lexer::Token::ThenKey,
+        "as" => lexer::Token::AsKey,
+        "of" => lexer::Token::OfKey,
+        "in" => lexer::Token::InKey,
+        "box" => lexer::Token::BoxKey,
+        "null" => lexer::Token::NullKey,
+        "true" => lexer::Token::TrueKey,
+        "false" => lexer::Token::FalseKey,
+        "i8" => lexer::Token::I8Key,
+        "i16" => lexer::Token::I16Key,
+        "i32" => lexer::Token::I32Key,
+        "i64" => lexer::Token::I64Key,
+        "u8" => lexer::Token::U8Key,
+        "u16" => lexer::Token::U16Key,
+        "u32" => lexer::Token::U32Key,
+        "u64" => lexer::Token::U64Key,
+        "usize" => lexer::Token::UsizeKey,
+        "f32" => lexer::Token::F32Key,
+        "f64" => lexer::Token::F64Key,
+        "bool" => lexer::Token::BoolKey,
+        "void" => lexer::Token::VoidKey,
+    }
 }
