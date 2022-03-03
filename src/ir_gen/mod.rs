@@ -133,14 +133,16 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         n
     }
 
-    fn open_scope(&mut self) {
+    fn in_scope<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
         let old_scope = std::mem::take(&mut self.scope);
         self.scope.parent = Some(old_scope);
-    }
-
-    fn close_scope(&mut self) {
+        let r = f(self);
         let parent = std::mem::take(&mut self.scope.parent);
         self.scope = parent.unwrap();
+        r
     }
 
     fn declare_var(&mut self, block_scope_name: &str, ty: ty::Ty<'ty>) -> String {
@@ -237,20 +239,20 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
         body: &'ast ast::SpanSlice<ast::Stmt>,
         close_brace: &ast::Span,
     ) -> Result<ir::StmtKind<'ty>, ModGenError> {
-        self.open_scope();
-        let mut stmts = Vec::new();
-        for stmt in body {
-            stmts.push(self.gen_stmt(stmt)?);
-        }
-        let label_next = std::mem::take(&mut self.label_next);
-        if let Some(label) = label_next {
-            stmts.push(ir::Stmt::new(
-                ir::StmtKind::Labeled(label, None),
-                close_brace.clone(),
-            ))
-        }
-        self.close_scope();
-        Ok(ir::StmtKind::Block(stmts))
+        self.in_scope(|this| {
+            let mut stmts = Vec::new();
+            for stmt in body {
+                stmts.push(this.gen_stmt(stmt)?);
+            }
+            let label_next = std::mem::take(&mut this.label_next);
+            if let Some(label) = label_next {
+                stmts.push(ir::Stmt::new(
+                    ir::StmtKind::Labeled(label, None),
+                    close_brace.clone(),
+                ))
+            }
+            Ok(ir::StmtKind::Block(stmts))
+        })
     }
 
     fn gen_if_stmt(
@@ -366,58 +368,56 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
             _ => todo!(),
         };
 
-        self.open_scope();
-
-        let initializer = self.declare_var(&initializer, usize_ty);
-        let initializer = ir::ExprKind::Ident(initializer);
-        let initializer = ir::Expr::new(initializer, init_span.clone(), usize_ty);
-        let initializer_stmt = ir::Stmt::new(
-            ir::StmtKind::Expr(Box::new(ir::Expr::new(
-                ir::ExprKind::Assign(Box::new(initializer.clone()), ir::AssignOp::Eq, from),
-                init_span.clone(),
-                usize_ty,
-            ))),
-            init_span.clone(),
-        );
-        let condition = Box::new(ir::Expr::new(
-            ir::ExprKind::Binary(Box::new(initializer.clone()), ir::BinOp::Lt, to),
-            init_span.clone(),
-            usize_ty,
-        ));
-        let incrementor = Box::new(ir::Expr::new(
-            ir::ExprKind::Assign(
-                Box::new(initializer.clone()),
-                ir::AssignOp::AddEq,
-                Box::new(ir::Expr::new(
-                    ir::ExprKind::Integer(ir::IntegerSpecifier::USize(1)),
+        self.in_scope(|this| {
+            let initializer = this.declare_var(&initializer, usize_ty);
+            let initializer = ir::ExprKind::Ident(initializer);
+            let initializer = ir::Expr::new(initializer, init_span.clone(), usize_ty);
+            let initializer_stmt = ir::Stmt::new(
+                ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                    ir::ExprKind::Assign(Box::new(initializer.clone()), ir::AssignOp::Eq, from),
                     init_span.clone(),
                     usize_ty,
-                )),
-            ),
-            init_span.clone(),
-            usize_ty,
-        ));
-        let block = Box::new(self.gen_stmt(block)?);
+                ))),
+                init_span.clone(),
+            );
+            let condition = Box::new(ir::Expr::new(
+                ir::ExprKind::Binary(Box::new(initializer.clone()), ir::BinOp::Lt, to),
+                init_span.clone(),
+                usize_ty,
+            ));
+            let incrementor = Box::new(ir::Expr::new(
+                ir::ExprKind::Assign(
+                    Box::new(initializer.clone()),
+                    ir::AssignOp::AddEq,
+                    Box::new(ir::Expr::new(
+                        ir::ExprKind::Integer(ir::IntegerSpecifier::USize(1)),
+                        init_span.clone(),
+                        usize_ty,
+                    )),
+                ),
+                init_span.clone(),
+                usize_ty,
+            ));
+            let block = Box::new(this.gen_stmt(block)?);
 
-        self.close_scope();
+            let popped_prefix = this.continue_break_label.pop().unwrap();
 
-        let popped_prefix = self.continue_break_label.pop().unwrap();
+            assert_eq!(popped_prefix, label_prefix);
+            let stmt = ir::StmtKind::For {
+                initializer: Box::new(initializer_stmt),
+                condition,
+                incrementor,
+                block,
+            };
 
-        assert_eq!(popped_prefix, label_prefix);
-        let stmt = ir::StmtKind::For {
-            initializer: Box::new(initializer_stmt),
-            condition,
-            incrementor,
-            block,
-        };
+            let stmt = ir::StmtKind::Labeled(
+                continue_label(&label_prefix),
+                Some(Box::new(ir::Stmt::new(stmt, span.clone()))),
+            );
+            this.label_next(break_label(&label_prefix));
 
-        let stmt = ir::StmtKind::Labeled(
-            continue_label(&label_prefix),
-            Some(Box::new(ir::Stmt::new(stmt, span.clone()))),
-        );
-        self.label_next(break_label(&label_prefix));
-
-        Ok(stmt)
+            Ok(stmt)
+        })
     }
 
     fn gen_let_stmt_patterned(

@@ -169,83 +169,87 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                 CasePattern::Variant(_ty, enum_name, variant_name, inner) => {
                     if let CasePattern::Tuple(ty, members) = inner.as_ref() {
                         let mut stmts = Vec::new();
-                        self.open_scope();
-                        if !members.is_empty() {
-                            let variant_var = self.declare_hidden_var(*ty);
-                            let variant_var =
-                                ir::Expr::new(ir::ExprKind::Ident(variant_var), span.clone(), *ty);
-                            stmts.push(ir::Stmt::new(
-                                ir::StmtKind::Expr(Box::new(ir::Expr::new(
-                                    ir::ExprKind::Assign(
-                                        Box::new(variant_var.clone()),
-                                        ir::AssignOp::Eq,
-                                        Box::new(ir::Expr::new(
-                                            ir::ExprKind::Dot(
-                                                Box::new(pattern_var.clone()),
-                                                variant_name.clone(),
-                                            ),
-                                            span.clone(),
-                                            *ty,
-                                        )),
-                                    ),
+                        self.in_scope(|this| {
+                            if !members.is_empty() {
+                                let variant_var = this.declare_hidden_var(*ty);
+                                let variant_var = ir::Expr::new(
+                                    ir::ExprKind::Ident(variant_var),
                                     span.clone(),
                                     *ty,
-                                ))),
-                                span.clone(),
-                            ));
-                            for (i, member) in members.iter().enumerate() {
-                                if let CasePattern::Ident(id_ty, name) = member {
-                                    let name = self.declare_var(name, *id_ty);
-                                    let value_var = ir::Expr::new(
-                                        ir::ExprKind::Ident(name.clone()),
+                                );
+                                stmts.push(ir::Stmt::new(
+                                    ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                                        ir::ExprKind::Assign(
+                                            Box::new(variant_var.clone()),
+                                            ir::AssignOp::Eq,
+                                            Box::new(ir::Expr::new(
+                                                ir::ExprKind::Dot(
+                                                    Box::new(pattern_var.clone()),
+                                                    variant_name.clone(),
+                                                ),
+                                                span.clone(),
+                                                *ty,
+                                            )),
+                                        ),
                                         span.clone(),
-                                        *id_ty,
-                                    );
-                                    stmts.push(ir::Stmt::new(
-                                        ir::StmtKind::Expr(Box::new(ir::Expr::new(
-                                            ir::ExprKind::Assign(
-                                                Box::new(value_var.clone()),
-                                                ir::AssignOp::Eq,
-                                                Box::new(ir::Expr::new(
-                                                    ir::ExprKind::Dot(
-                                                        Box::new(variant_var.clone()),
-                                                        format!("_{}", i),
-                                                    ),
-                                                    span.clone(),
-                                                    *id_ty,
-                                                )),
-                                            ),
+                                        *ty,
+                                    ))),
+                                    span.clone(),
+                                ));
+                                for (i, member) in members.iter().enumerate() {
+                                    if let CasePattern::Ident(id_ty, name) = member {
+                                        let name = this.declare_var(name, *id_ty);
+                                        let value_var = ir::Expr::new(
+                                            ir::ExprKind::Ident(name.clone()),
                                             span.clone(),
                                             *id_ty,
-                                        ))),
-                                        span.clone(),
-                                    ));
-                                } else {
-                                    todo!()
+                                        );
+                                        stmts.push(ir::Stmt::new(
+                                            ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                                                ir::ExprKind::Assign(
+                                                    Box::new(value_var.clone()),
+                                                    ir::AssignOp::Eq,
+                                                    Box::new(ir::Expr::new(
+                                                        ir::ExprKind::Dot(
+                                                            Box::new(variant_var.clone()),
+                                                            format!("_{}", i),
+                                                        ),
+                                                        span.clone(),
+                                                        *id_ty,
+                                                    )),
+                                                ),
+                                                span.clone(),
+                                                *id_ty,
+                                            ))),
+                                            span.clone(),
+                                        ));
+                                    } else {
+                                        todo!()
+                                    }
                                 }
                             }
-                        }
 
-                        let discriminant_expr = ir::Expr::new(
-                            // HACK: shouldn't codegen here
-                            ir::ExprKind::Ident(format!(
-                                "{}_{}_k",
-                                crate::codegen::mangle_path(&enum_name),
-                                variant_name
-                            )),
-                            span.clone(),
-                            ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::I32),
-                        );
+                            let discriminant_expr = ir::Expr::new(
+                                // HACK: shouldn't codegen here
+                                ir::ExprKind::Ident(format!(
+                                    "{}_{}_k",
+                                    crate::codegen::mangle_path(&enum_name),
+                                    variant_name
+                                )),
+                                span.clone(),
+                                ty::primitive_ty(this.module.ty_ctx(), ty::PrimitiveType::I32),
+                            );
 
-                        stmts.reserve(arm.value().stmts.len());
-                        for stmt in &arm.value().stmts {
-                            stmts.push(self.gen_stmt(stmt)?);
-                        }
+                            stmts.reserve(arm.value().stmts.len());
+                            for stmt in &arm.value().stmts {
+                                stmts.push(this.gen_stmt(stmt)?);
+                            }
 
-                        self.close_scope();
-
-                        let block_expr = ir::Stmt::new(ir::StmtKind::Block(stmts), span.clone());
-                        cases.push((Box::new(discriminant_expr), Box::new(block_expr)));
+                            let block_expr =
+                                ir::Stmt::new(ir::StmtKind::Block(stmts), span.clone());
+                            cases.push((Box::new(discriminant_expr), Box::new(block_expr)));
+                            Ok(())
+                        })?;
                     } else {
                         panic!()
                     };
