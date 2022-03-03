@@ -274,10 +274,10 @@ impl Lexer<'_> {
 
             // Strings
             '"' => {
-                self.sc.consume(|c| c != '"');
                 while let Some(c) = self.sc.peek() {
                     match c {
                         '\\' => {
+                            self.sc.next();
                             if self.sc.next().is_none() {
                                 return Some(Err(BadStringEscape));
                             }
@@ -285,7 +285,9 @@ impl Lexer<'_> {
                         '"' => {
                             break;
                         }
-                        _ => (),
+                        _ => {
+                            self.sc.next();
+                        }
                     }
                 }
                 if self.sc.eat('"') {

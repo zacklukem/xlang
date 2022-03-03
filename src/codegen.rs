@@ -14,6 +14,37 @@ use std::fmt::Write as FmtWrite;
 use std::io::Result as IoResult;
 use std::io::Write;
 
+fn replace_escaped_string(text: &str) -> String {
+    let inner_text = &text[1..text.len() - 1];
+    let mut out = String::with_capacity(text.len());
+    let mut iter = inner_text.chars();
+    while let Some(ch) = iter.next() {
+        match ch {
+            '\\' => {
+                let next = iter.next().unwrap();
+                let out_code: char = match next {
+                    'a' => '\x07',
+                    'b' => '\x08',
+                    'e' => '\x1B',
+                    'f' => '\x0C',
+                    'n' => '\n',
+                    'r' => '\r',
+                    't' => '\t',
+                    'v' => '\x0B',
+                    '\\' => '\\',
+                    '\'' => '\'',
+                    '"' => '"',
+                    '?' => '?',
+                    _ => panic!(),
+                };
+                out.push(out_code);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[derive(Debug)]
 pub struct CodeGen<'ty, T> {
     module: &'ty Module<'ty>,
@@ -668,7 +699,7 @@ where
                 outputs,
                 code,
             } => {
-                let mut code = code.to_string();
+                let mut code = replace_escaped_string(code);
                 for (param_type, varname, replace_name) in inputs {
                     match param_type {
                         InlineCParamType::Var => {

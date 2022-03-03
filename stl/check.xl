@@ -1,7 +1,7 @@
 
 fun panic_raw(str: *[]u8,line_col: *[]u8) {
     @c(var str: $str, var line_col: $line_col ; ; "
-        __print_panic_message__($str, $line_col);
+        printf(\"Panicked at %s with: '%s'\", $line_col, $str);
         exit(101);
     ");
 }
