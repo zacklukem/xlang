@@ -1,11 +1,9 @@
 use crate::ast::{
-    self, Expr, Ident, IntegerSpecifier, MacroCall, Module, Name, Source, Span, SpanBox, Spanned,
-    Stmt, TopStmt,
+    self, Expr, Ident, MacroCall, Module, Name, Span, SpanBox, Spanned, Stmt, TopStmt,
 };
 use crate::error_context::ErrorContext;
 use either::Either;
 use std::cell::RefCell;
-use std::rc::Rc;
 
 pub fn expand_macros(ast_module: &Module, err: &mut ErrorContext) {
     let mut exp = MacroExpander { ast_module, err };
@@ -21,13 +19,10 @@ struct MacroExpander<'a> {
 impl<'a> MacroExpander<'a> {
     fn expand_macros(&mut self) {
         for top_stmt in &self.ast_module.top_stmts {
-            match &top_stmt.value {
-                TopStmt::Fun { body, .. } => {
-                    for stmt in &body.value.stmts {
-                        self.expand_stmt(stmt);
-                    }
+            if let TopStmt::Fun { body, .. } = &top_stmt.value {
+                for stmt in &body.value.stmts {
+                    self.expand_stmt(stmt);
                 }
-                _ => (),
             }
         }
     }
@@ -163,7 +158,7 @@ impl<'a> MacroExpander<'a> {
             let span = &macro_call.name;
             let (line, col) = macro_call.name.line_col();
             let file_name = &macro_call.name.source.file_name;
-            assert!(macro_call.arguments.len() == 0 || macro_call.arguments.len() == 1);
+            assert!(macro_call.arguments.is_empty() || macro_call.arguments.len() == 1);
             *cell.borrow_mut() = Either::Right(Box::new(spanned(
                 span,
                 Expr::Call {

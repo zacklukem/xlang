@@ -108,7 +108,7 @@ impl Span {
 
     pub fn str(&self) -> &str {
         if let Some(string) = &self.macro_str {
-            &string
+            string
         } else {
             &self.source.source_string[self.start..self.end]
         }

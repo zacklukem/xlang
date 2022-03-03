@@ -106,7 +106,7 @@ fn parse_source<P: AsRef<path::Path>>(filename: P, err: &mut ec::ErrorContext) -
     ast_module
 }
 
-fn get_mod<'mg, 'ast, 'ty, P: AsRef<path::Path>>(
+fn get_mod<P: AsRef<path::Path>>(
     file: P,
     err: &mut ec::ErrorContext,
 ) -> (ast::Module, String, HashMap<String, ir::Path>) {
@@ -134,7 +134,7 @@ fn gen_ir_on<'ty>(
             usages,
         );
 
-        if let Err(_) = mod_gen.declare_all() {
+        if mod_gen.declare_all().is_err() {
             print_pass_errors_and_exit(err);
             std::process::exit(1);
         }
@@ -148,7 +148,7 @@ fn gen_ir_on<'ty>(
             ir::Path::Terminal(mod_name.clone()),
             usages,
         );
-        if let Err(_) = mod_gen.define_all() {
+        if mod_gen.define_all().is_err() {
             print_pass_errors_and_exit(err);
             std::process::exit(1);
         }
@@ -162,7 +162,7 @@ fn gen_ir_on<'ty>(
             ir::Path::Terminal(mod_name.clone()),
             usages,
         );
-        if let Err(_) = mod_gen.gen_all() {
+        if mod_gen.gen_all().is_err() {
             print_pass_errors_and_exit(err);
             std::process::exit(1);
         }

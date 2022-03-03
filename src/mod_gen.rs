@@ -631,10 +631,10 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
         let def_id = self.module.get_def_id_by_path(&path).unwrap();
 
         let body = ir_gen::gen_fun_block(
-            &self.usages,
-            &self.module,
+            self.usages,
+            self.module,
             format!("{}", path),
-            &mut self.err,
+            self.err,
             def_id,
             params,
             return_type,
