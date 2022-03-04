@@ -1,16 +1,40 @@
+use crate::ast::Span;
+use crate::error_context::ErrorContext;
 use crate::ty::{AdtType, Ty, TyCtx, TyKind};
 use std::cell::Cell;
+use InferError::*;
 
 #[derive(Debug)]
 pub enum InferError {
     MismatchedTypes,
 }
-use InferError::*;
 
 pub type InferResult<T> = Result<T, InferError>;
 
+trait EmitResult {
+    fn emit(self, err: &mut ErrorContext, span: &Span) -> Self;
+}
+
+impl<T> EmitResult for InferResult<T> {
+    fn emit(self, err: &mut ErrorContext, span: &Span) -> Self {
+        if let Err(MismatchedTypes) = &self {
+            err.err("Mismatched types".into(), span);
+            self
+        } else {
+            self
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct TyVarId(u32);
+
+impl TyVarId {
+    pub fn to_human_readable(self) -> char {
+        let id = self.0;
+        char::from_u32((id % 26) + (b'A' as u32)).unwrap()
+    }
+}
 
 #[derive(Debug)]
 pub enum Constraint<'ty> {

@@ -79,6 +79,31 @@ pub struct Span {
     pub end: usize,
 }
 
+impl std::ops::Add for &Span {
+    type Output = Span;
+
+    fn add(self, rhs: &Span) -> Self::Output {
+        assert!(std::ptr::eq(self.source.as_ref(), rhs.source.as_ref()));
+        if self.macro_str.is_some() {
+            Span {
+                source: self.source.clone(),
+                start: 0,
+                end: 0,
+                macro_str: Some("CAT_SPAN".to_owned()),
+            }
+        } else {
+            let start = self.start.min(rhs.start);
+            let end = self.end.max(rhs.end);
+            Span {
+                source: self.source.clone(),
+                start,
+                end,
+                macro_str: None,
+            }
+        }
+    }
+}
+
 impl Span {
     pub fn dummy() -> Span {
         Span {

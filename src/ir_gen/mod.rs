@@ -3,6 +3,7 @@
 mod ir_gen_match;
 use crate::ast;
 use crate::error_context::ErrorContext;
+use crate::infer::InferCtx;
 use crate::intern::Int;
 use crate::ir;
 use crate::mod_gen::{ModGenError, TypeGenerator};
@@ -24,6 +25,7 @@ pub fn gen_fun_block<'ast, 'ty, 'mg>(
 ) -> Result<ir::Fun<'ty>, ModGenError> {
     let (block, variable_defs) = {
         let mut ir_gen = IrGen {
+            icx: InferCtx::new(module.ty_ctx),
             usages,
             var_id: 0,
             md: module,
@@ -91,6 +93,7 @@ struct IrGen<'ty, 'mg> {
     label_next: Option<String>,
     return_type: ty::Ty<'ty>,
     current_generics: Vec<String>,
+    icx: InferCtx<'ty>,
 }
 
 fn continue_label(v: &str) -> String {
@@ -197,9 +200,17 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                     },
                 ..
             }) => {
-                assert_eq!(ty_params.len(), generics.len());
+                let generics = if !generics.is_empty() {
+                    // if ty_params.len() != generics.len() {
+                    //     self.err.err("Missing or extra generics".into(),
+                    // need a span here
+                    assert_eq!(ty_params.len(), generics.len(), "Mismatched generics count");
+                    // }
+                    generics.to_owned()
+                } else {
+                    ty_params.iter().map(|_| self.icx.mk_var()).collect()
+                };
                 let params = params.iter().map(|(_, t)| *t).collect::<Vec<_>>();
-                // TODO: resolve t-params
                 Some((
                     self.replace_generics(
                         self.md.ty_ctx().int(ty::TyKind::Fun(params, *return_type)),
@@ -621,7 +632,6 @@ impl<'ty, 'ast, 'mg> IrGen<'ty, 'mg> {
                 let inputs = inputs
                     .iter()
                     .map(|(pt, varname, replace_name)| {
-                        println!("{}", varname.str());
                         let varname: String = match pt {
                             ast::InlineCParamType::Var => {
                                 self.scope.resolve(varname.str()).unwrap().clone()

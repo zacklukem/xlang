@@ -67,7 +67,7 @@ impl Display for TyKind<'_> {
             TyKind::UnsizedArray(ty) => write!(f, "[]{ty}"),
             TyKind::Range(ty) => write!(f, "<RANGE {ty}>"),
             TyKind::Err => write!(f, "<ERR_TYPE>"),
-            TyKind::TyVar(_) => write!(f, "<?>"),
+            TyKind::TyVar(id) => write!(f, "?{}", id.to_human_readable()),
         }
     }
 }

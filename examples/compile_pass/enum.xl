@@ -9,20 +9,32 @@ enum<T> Stuff {
 
  -- hi
 fun main() -> i32 {
-    let value = Stuff::Double::<i32>(Some::<i32>(1234), Some::<i32>(4321));
+    let value = Stuff::Double(Some(1234), Some(4321));
+    --          ^ Stuff::<?C> ^ Maybe::<?A> ^ Maybe::<?B>
+    --
+    -- ?A := Integral(?)
+    -- ?B := Integral(?)
+    -- ?A := ?B
+    -- ?C := ?A
 
-    let something = Maybe::None::<i32>();
+    let something = None();
+    --              ^ Maybe::<?D>
 
     case value {
     | Stuff::Double(a, b) ->
+        --          ^ Maybe::<?A>
         something = a;
+        -- ?D := ?A
     | Stuff::Single(a) ->
         ret 5;
     }
 
     case something {
     | Some(a) ->
+        -- ^ ?D
         if a == 1234 {
+        -- ^ ?D  ^ Integral
+        -- ?D := Integral
             ret 0;
         } else {
             ret 2;

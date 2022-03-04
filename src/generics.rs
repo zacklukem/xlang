@@ -59,8 +59,6 @@ pub fn replace_generics<'ty>(
                 ty_params,
             }))
         }
-
-        Primitive(_) | Err => ty,
-        TyVar(_) => panic!("Internal error"),
+        TyVar(_) | Primitive(_) | Err => ty,
     }
 }

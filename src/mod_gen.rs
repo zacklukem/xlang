@@ -630,19 +630,34 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
 
         let def_id = self.module.get_def_id_by_path(&path).unwrap();
 
-        let body = ir_gen::gen_fun_block(
-            self.usages,
+        let mut tir = Default::default();
+
+        let tir_stmt = crate::tir::lower_and_type_ast(
             self.module,
-            format!("{}", path),
+            &mut tir,
             self.err,
-            def_id,
-            params,
-            return_type,
-            body,
+            self.usages,
             generics,
+            body,
         )?;
 
-        self.module.functions.insert(def_id, body);
+        println!("{:#?}", tir_stmt);
+
+        panic!();
+
+        // let body = ir_gen::gen_fun_block(
+        //     self.usages,
+        //     self.module,
+        //     format!("{}", path),
+        //     self.err,
+        //     def_id,
+        //     params,
+        //     return_type,
+        //     body,
+        //     generics,
+        // )?;
+
+        // self.module.functions.insert(def_id, body);
 
         Ok(())
     }
