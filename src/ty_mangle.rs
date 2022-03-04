@@ -87,7 +87,6 @@ impl<'ty> Ty<'ty> {
                 inner.mangle_write(f)?;
                 f.write_str("_range")
             }
-            Lhs(inner) => inner.mangle_write(f),
             Adt(AdtType {
                 def_id: _,
                 path,
@@ -101,7 +100,7 @@ impl<'ty> Ty<'ty> {
                 Ok(())
             }
             Err => f.write_str("ERR_TY"),
-            Unknown => f.write_str("ERR_TY"),
+            TyVar(_) => panic!(),
         }
     }
 }

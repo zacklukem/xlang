@@ -37,7 +37,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                             ty_params,
                         },
                     ..
-                }) = &self.module.get_def_by_path(&name)
+                }) = &self.md.get_def_by_path(&name)
                 {
                     assert_eq!(cons_params.len(), params.len());
                     (return_type, cons_params, ty_params)
@@ -52,7 +52,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                     .cloned()
                     .zip(ty_param_tys.iter().cloned())
                     .collect::<Vec<_>>();
-                let ty = replace_generics(self.module.ty_ctx(), ty, &generics);
+                let ty = replace_generics(self.md.ty_ctx(), ty, &generics);
                 // ty_param
                 let enum_name = name.pop_end().unwrap();
                 let variant_name = name.end().clone();
@@ -62,7 +62,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                     let mut out = Vec::with_capacity(cons_params.len());
                     let mut tys = Vec::with_capacity(cons_params.len());
                     for (pat, (_, ty)) in params {
-                        let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                        let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                         tys.push(ty);
                         out.push(self.to_case_pattern(ty, pat)?);
                     }
@@ -70,9 +70,9 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                 };
 
                 let tuple_ty = ty::TyKind::Tuple(tys);
-                let tuple_ty = self.module.ty_ctx().int(tuple_ty);
+                let tuple_ty = self.md.ty_ctx().int(tuple_ty);
 
-                let tuple_ty = replace_generics(self.module.ty_ctx(), tuple_ty, &generics);
+                let tuple_ty = replace_generics(self.md.ty_ctx(), tuple_ty, &generics);
 
                 CasePattern::Variant(
                     ty,
@@ -109,7 +109,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                             ..
                         },
                     ..
-                }) = &self.module.get_def_by_path(&name)
+                }) = &self.md.get_def_by_path(&name)
                 {
                     let enum_name = name.pop_end().unwrap();
                     let variant_name = name.end().clone();
@@ -136,19 +136,19 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
     ) -> Result<ir::StmtKind<'ty>, ModGenError> {
         let expr = self.gen_expr(expr)?;
         let span = expr.span().clone();
-        let ty = expr.ty();
+        let ty = self.md.ty_of(&expr);
 
         let mut stmts = Vec::new();
 
-        let pattern_var = self.declare_hidden_var(expr.ty());
-        let pattern_var = ir::Expr::new(
+        let pattern_var = self.declare_hidden_var(ty);
+        let pattern_var = self.md.mk_expr(
             ir::ExprKind::Ident(pattern_var),
             expr.span().clone(),
-            expr.ty(),
+            ty,
         );
 
         stmts.push(ir::Stmt::new(
-            ir::StmtKind::Expr(Box::new(ir::Expr::new(
+            ir::StmtKind::Expr(Box::new(self.md.mk_expr(
                 ir::ExprKind::Assign(
                     Box::new(pattern_var.clone()),
                     ir::AssignOp::Eq,
@@ -172,17 +172,17 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                         self.in_scope(|this| {
                             if !members.is_empty() {
                                 let variant_var = this.declare_hidden_var(*ty);
-                                let variant_var = ir::Expr::new(
+                                let variant_var = self.md.mk_expr(
                                     ir::ExprKind::Ident(variant_var),
                                     span.clone(),
                                     *ty,
                                 );
                                 stmts.push(ir::Stmt::new(
-                                    ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                                    ir::StmtKind::Expr(Box::new(self.md.mk_expr(
                                         ir::ExprKind::Assign(
                                             Box::new(variant_var.clone()),
                                             ir::AssignOp::Eq,
-                                            Box::new(ir::Expr::new(
+                                            Box::new(self.md.mk_expr(
                                                 ir::ExprKind::Dot(
                                                     Box::new(pattern_var.clone()),
                                                     variant_name.clone(),
@@ -199,17 +199,17 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                                 for (i, member) in members.iter().enumerate() {
                                     if let CasePattern::Ident(id_ty, name) = member {
                                         let name = this.declare_var(name, *id_ty);
-                                        let value_var = ir::Expr::new(
+                                        let value_var = self.md.mk_expr(
                                             ir::ExprKind::Ident(name.clone()),
                                             span.clone(),
                                             *id_ty,
                                         );
                                         stmts.push(ir::Stmt::new(
-                                            ir::StmtKind::Expr(Box::new(ir::Expr::new(
+                                            ir::StmtKind::Expr(Box::new(self.md.mk_expr(
                                                 ir::ExprKind::Assign(
                                                     Box::new(value_var.clone()),
                                                     ir::AssignOp::Eq,
-                                                    Box::new(ir::Expr::new(
+                                                    Box::new(self.md.mk_expr(
                                                         ir::ExprKind::Dot(
                                                             Box::new(variant_var.clone()),
                                                             format!("_{}", i),
@@ -229,7 +229,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                                 }
                             }
 
-                            let discriminant_expr = ir::Expr::new(
+                            let discriminant_expr = self.md.mk_expr(
                                 // HACK: shouldn't codegen here
                                 ir::ExprKind::Ident(format!(
                                     "{}_{}_k",
@@ -237,7 +237,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
                                     variant_name
                                 )),
                                 span.clone(),
-                                ty::primitive_ty(this.module.ty_ctx(), ty::PrimitiveType::I32),
+                                ty::primitive_ty(this.md.ty_ctx(), ty::PrimitiveType::I32),
                             );
 
                             stmts.reserve(arm.value().stmts.len());
@@ -258,10 +258,10 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
             }
         }
 
-        let expr = ir::Expr::new(
+        let expr = self.md.mk_expr(
             ir::ExprKind::Dot(Box::new(pattern_var), "kind".into()),
             span.clone(),
-            ty::primitive_ty(self.module.ty_ctx(), ty::PrimitiveType::I32),
+            ty::primitive_ty(self.md.ty_ctx(), ty::PrimitiveType::I32),
         );
 
         stmts.push(ir::Stmt::new(

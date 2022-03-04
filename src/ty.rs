@@ -1,6 +1,7 @@
 //! Data structures relating to types
 
 use crate::ast;
+use crate::infer::TyVarId;
 use crate::intern::Arena;
 use crate::intern::Int;
 use crate::ir::{DefId, Path};
@@ -19,7 +20,7 @@ impl<'ty> TyCtxContainer<'ty> {
     pub fn new() -> TyCtxContainer<'ty> {
         Self {
             ctx: TyCtxS {
-                arena: Arena::new(),
+                ty_arena: Arena::new(),
             },
         }
     }
@@ -34,13 +35,13 @@ pub struct TyCtx<'ty>(&'ty TyCtxS<'ty>);
 
 #[derive(Debug)]
 pub struct TyCtxS<'ty> {
-    pub arena: Arena<TyKind<'ty>>,
+    pub ty_arena: Arena<TyKind<'ty>>,
 }
 
 impl<'ty> TyCtx<'ty> {
     /// Intern a type and get its Ty
     pub fn int(self, ty: TyKind<'ty>) -> Ty<'ty> {
-        Ty(self.0.arena.int(ty))
+        Ty(self.0.ty_arena.int(ty))
     }
 }
 
@@ -64,10 +65,6 @@ pub fn bool_ty(ctx: TyCtx<'_>) -> Ty<'_> {
 
 pub fn err_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Err)
-}
-
-pub fn ukn_ty(ctx: TyCtx<'_>) -> Ty<'_> {
-    ctx.int(TyKind::Unknown)
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
@@ -180,10 +177,9 @@ pub enum TyKind<'ty> {
     SizedArray(usize, Ty<'ty>),
     UnsizedArray(Ty<'ty>),
     Range(Ty<'ty>),
-    Lhs(Ty<'ty>),
     Adt(AdtType<'ty>),
+    TyVar(TyVarId),
     Err,
-    Unknown,
 }
 
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]

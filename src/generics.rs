@@ -16,10 +16,6 @@ pub fn replace_generics<'ty>(
             let inner = replace_generics(ctx, *inner, generics);
             ctx.int(Pointer(kind.clone(), inner))
         }
-        Lhs(inner) => {
-            let inner = replace_generics(ctx, *inner, generics);
-            ctx.int(Lhs(inner))
-        }
         SizedArray(size, inner) => {
             let inner = replace_generics(ctx, *inner, generics);
             ctx.int(SizedArray(*size, inner))
@@ -64,6 +60,7 @@ pub fn replace_generics<'ty>(
             }))
         }
 
-        Primitive(_) | Err | Unknown => ty,
+        Primitive(_) | Err => ty,
+        TyVar(_) => panic!("Internal error"),
     }
 }

@@ -47,7 +47,7 @@ fn replace_escaped_string(text: &str) -> String {
 
 #[derive(Debug)]
 pub struct CodeGen<'ty, T> {
-    module: &'ty Module<'ty>,
+    md: &'ty Module<'ty>,
     monos: &'ty HashSet<DefInstance<'ty>>,
     special_types: &'ty HashSet<Ty<'ty>>,
     header_writer: &'ty mut T,
@@ -178,7 +178,6 @@ impl<'ty> Ty<'ty> {
             Range(_inner) => {
                 todo!()
             }
-            Lhs(inner) => inner.to_c_type_write(ident, f)?,
             Adt(AdtType {
                 def_id: _,
                 path,
@@ -196,7 +195,7 @@ impl<'ty> Ty<'ty> {
                 }
             }
             Err => f.write_str("ERR_TY")?,
-            Unknown => f.write_str("ERR_TY")?,
+            TyVar(_) => panic!("Unexpected TyVar"),
         }
         Ok(())
     }
@@ -215,7 +214,7 @@ where
     ) -> CodeGen<'ty, T> {
         CodeGen {
             indent: 0,
-            module,
+            md: module,
             monos,
             special_types,
             header_writer,
@@ -262,9 +261,9 @@ where
 
         writeln!(self.header_writer)?;
 
-        for (def_id, def) in self.module.defs_iter() {
+        for (def_id, def) in self.md.defs_iter() {
             if let DefKind::Enum { variants, .. } = &def.kind {
-                let path = self.module.get_path_by_def_id(*def_id);
+                let path = self.md.get_path_by_def_id(*def_id);
                 let path = mangle_path(path);
                 let path_name = path.clone() + "_k";
                 writeln!(self.header_writer, "enum {path_name} {{")?;
@@ -276,8 +275,8 @@ where
         }
 
         for mono in self.monos {
-            let def = self.module.get_def_by_id(mono.def_id);
-            let path = self.module.get_path_by_def_id(mono.def_id);
+            let def = self.md.get_def_by_id(mono.def_id);
+            let path = self.md.get_path_by_def_id(mono.def_id);
             match &def.kind {
                 DefKind::Struct { .. } => {
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
@@ -300,8 +299,8 @@ where
         writeln!(self.header_writer)?;
 
         for mono in self.monos {
-            let def = self.module.get_def_by_id(mono.def_id);
-            let path = self.module.get_path_by_def_id(mono.def_id);
+            let def = self.md.get_def_by_id(mono.def_id);
+            let path = self.md.get_path_by_def_id(mono.def_id);
             if let DefKind::Fun {
                 ty_params,
                 params,
@@ -312,11 +311,11 @@ where
                 let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                 let generics = zip_clone_vec(ty_params, &mono.ty_params);
-                let return_type = replace_generics(self.module.ty_ctx(), *return_type, &generics);
+                let return_type = replace_generics(self.md.ty_ctx(), *return_type, &generics);
                 let return_type = return_type.to_c_type(None);
                 write!(self.header_writer, "{return_type} {fun_name}(")?;
                 for (i, (name, param)) in params.iter().enumerate() {
-                    let param = replace_generics(self.module.ty_ctx(), *param, &generics);
+                    let param = replace_generics(self.md.ty_ctx(), *param, &generics);
                     write!(self.header_writer, "{}", param.to_c_type(Some(name)))?;
                     if i + 1 < params.len() {
                         write!(self.header_writer, ", ")?;
@@ -360,11 +359,10 @@ where
             TyKind::Tuple(tys) => tys.iter().map(|ty| self.type_index(*ty)).max().unwrap_or(0) + 1,
             TyKind::SizedArray(_, ty) => self.type_index(*ty),
             TyKind::Range(ty) => self.type_index(*ty),
-            TyKind::Lhs(ty) => self.type_index(*ty),
             TyKind::Adt(AdtType {
                 def_id, ty_params, ..
             }) => {
-                let def = self.module.get_def_by_id(*def_id);
+                let def = self.md.get_def_by_id(*def_id);
                 match &def.kind {
                     DefKind::Struct {
                         members,
@@ -375,7 +373,7 @@ where
                         members
                             .iter()
                             .map(|(_, ty)| {
-                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                                 self.type_index(ty)
                             })
                             .max()
@@ -391,7 +389,7 @@ where
                         variants
                             .iter()
                             .map(|(_, ty)| {
-                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                                 self.type_index(ty)
                             })
                             .max()
@@ -406,8 +404,8 @@ where
             | TyKind::UnsizedArray(_)
             | TyKind::Fun(_, _)
             | TyKind::Pointer(_, _)
-            | TyKind::Err
-            | TyKind::Unknown => 0,
+            | TyKind::Err => 0,
+            TyKind::TyVar(_) => panic!("Internal error"),
         }
     }
 
@@ -420,10 +418,10 @@ where
         }
 
         for mono in self.monos {
-            let def = self.module.get_def_by_id(mono.def_id);
+            let def = self.md.get_def_by_id(mono.def_id);
             if let DefKind::Struct { .. } | DefKind::Enum { .. } = &def.kind {
-                let path = self.module.get_path_by_def_id(mono.def_id);
-                let ty = self.module.ty_ctx().int(TyKind::Adt(AdtType {
+                let path = self.md.get_path_by_def_id(mono.def_id);
+                let ty = self.md.ty_ctx().int(TyKind::Adt(AdtType {
                     def_id: mono.def_id,
                     path: path.clone(),
                     ty_params: mono.ty_params.clone(),
@@ -462,8 +460,8 @@ where
                     }
                 }
                 Either::Right(mono) => {
-                    let def = self.module.get_def_by_id(mono.def_id);
-                    let path = self.module.get_path_by_def_id(mono.def_id);
+                    let def = self.md.get_def_by_id(mono.def_id);
+                    let path = self.md.get_path_by_def_id(mono.def_id);
                     match &def.kind {
                         DefKind::Struct {
                             members, ty_params, ..
@@ -475,7 +473,7 @@ where
                             writeln!(self.header_writer, "// Type index: {}", idx)?;
                             writeln!(self.header_writer, "\nstruct {0} {{", path_name)?;
                             for (name, ty) in members {
-                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                                 let ty = ty.to_c_type(Some(name));
                                 writeln!(self.header_writer, "    {};", ty)?;
                             }
@@ -497,7 +495,7 @@ where
                             writeln!(self.header_writer, "    enum {kind_type_name} kind;")?;
                             writeln!(self.header_writer, "    union {{")?;
                             for (name, ty) in variants {
-                                let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                                let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                                 let ty = ty.to_c_type(Some(name));
                                 writeln!(self.header_writer, "        {ty};")?;
                             }
@@ -515,8 +513,8 @@ where
 
     fn output_funs(&mut self) -> IoResult<()> {
         for mono in self.monos {
-            let def = self.module.get_def_by_id(mono.def_id);
-            let path = self.module.get_path_by_def_id(mono.def_id);
+            let def = self.md.get_def_by_id(mono.def_id);
+            let path = self.md.get_path_by_def_id(mono.def_id);
             match &def.kind {
                 DefKind::Fun {
                     ty_params,
@@ -531,12 +529,11 @@ where
                     let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                     let generics = zip_clone_vec(ty_params, &mono.ty_params);
-                    let return_type =
-                        replace_generics(self.module.ty_ctx(), *return_type, &generics);
+                    let return_type = replace_generics(self.md.ty_ctx(), *return_type, &generics);
                     let return_type = return_type.to_c_type(None);
                     write!(self.source_writer, "{return_type} {fun_name}(")?;
                     for (i, (name, param)) in params.iter().enumerate() {
-                        let param = replace_generics(self.module.ty_ctx(), *param, &generics);
+                        let param = replace_generics(self.md.ty_ctx(), *param, &generics);
                         write!(self.source_writer, "{}", param.to_c_type(Some(name)))?;
                         if i + 1 < params.len() {
                             write!(self.source_writer, ", ")?;
@@ -544,10 +541,10 @@ where
                     }
                     writeln!(self.source_writer, ") {{")?;
                     if *external == ExternKind::Define {
-                        let fun = self.module.functions.get(&mono.def_id).unwrap();
+                        let fun = self.md.functions.get(&mono.def_id).unwrap();
 
                         for (name, ty) in &fun.variable_defs {
-                            let ty = replace_generics(self.module.ty_ctx(), *ty, &generics);
+                            let ty = replace_generics(self.md.ty_ctx(), *ty, &generics);
                             let ty = ty.to_c_type(Some(name));
                             writeln!(self.source_writer, "    {ty};")?;
                         }
@@ -557,14 +554,14 @@ where
                         let variant = path.end();
                         let enum_name = path.pop_end().unwrap();
                         let variants = if let DefKind::Enum { variants, .. } =
-                            &self.module.get_def_by_path(&enum_name).unwrap().kind
+                            &self.md.get_def_by_path(&enum_name).unwrap().kind
                         {
                             variants
                         } else {
                             panic!()
                         };
                         let inner_ty = variants.get(variant).unwrap();
-                        let inner_ty = replace_generics(self.module.ty_ctx(), *inner_ty, &generics);
+                        let inner_ty = replace_generics(self.md.ty_ctx(), *inner_ty, &generics);
                         let inner_ty = inner_ty.to_c_type(None);
 
                         let mut initializers = String::new();
@@ -712,8 +709,8 @@ where
                             code = code.replace(replace_name, varname);
                         }
                         InlineCParamType::Type => {
-                            let ty = self.module.ty_ctx().int(TyKind::Param(varname.clone()));
-                            let param = replace_generics(self.module.ty_ctx(), ty, ty_params);
+                            let ty = self.md.ty_ctx().int(TyKind::Param(varname.clone()));
+                            let param = replace_generics(self.md.ty_ctx(), ty, ty_params);
                             let param = param.to_c_type(None);
                             code = code.replace(replace_name, &param);
                         }
@@ -749,7 +746,7 @@ where
             {
                 if let GlobalIdent(_, generics) = &expr.kind {
                     let ty = generics[0];
-                    let ty = replace_generics(self.module.ty_ctx(), ty, ty_params);
+                    let ty = replace_generics(self.md.ty_ctx(), ty, ty_params);
                     let ty = ty.to_c_type(None);
                     write!(self.f(), "sizeof({ty})")?;
                 } else {
@@ -759,7 +756,7 @@ where
             GlobalIdent(path, generics) => {
                 let generics = generics
                     .iter()
-                    .map(|ty| replace_generics(self.module.ty_ctx(), *ty, ty_params))
+                    .map(|ty| replace_generics(self.md.ty_ctx(), *ty, ty_params))
                     .collect::<Vec<_>>();
                 let path_name = mangle_path(path) + &mangle_ty_vec(&generics);
                 write!(self.f(), "{}", path_name)?;
@@ -771,7 +768,6 @@ where
             Bool(true) => write!(self.f(), "true")?,
             Bool(false) => write!(self.f(), "false")?,
             Null => write!(self.f(), "XLANG_NULL")?,
-            LhsExpr(expr) => self.expr(expr, ty_params)?,
             Tuple(tys) => {
                 write!(self.f(), "(")?;
                 for (i, arg) in tys.iter().enumerate() {
@@ -802,8 +798,8 @@ where
                 write!(self.f(), ")")?;
             }
             Unary(UnaryOp::Box, rhs) => {
-                let inner_ty = rhs.ty();
-                let inner_ty = replace_generics(self.module.ty_ctx(), inner_ty, ty_params);
+                let inner_ty = self.md.ty_of(rhs.as_ref());
+                let inner_ty = replace_generics(self.md.ty_ctx(), inner_ty, ty_params);
                 let inner_ty = inner_ty.to_c_type(None);
 
                 let ptr_name = "__ptr";
@@ -839,7 +835,7 @@ where
             }
             Cast(expr, ty) => {
                 if !ty.is_integer_ukn() {
-                    let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);
+                    let ty = replace_generics(self.md.ty_ctx(), *ty, ty_params);
                     let ty = ty.to_c_type(None);
                     write!(self.f(), "({ty})(")?;
                     self.expr(expr, ty_params)?;
@@ -883,7 +879,7 @@ where
             Array { members: _ } => todo!(),
             Struct { ty, members } => {
                 //todo
-                let ty = replace_generics(self.module.ty_ctx(), *ty, ty_params);
+                let ty = replace_generics(self.md.ty_ctx(), *ty, ty_params);
                 let ct = ty.to_c_type(None);
                 write!(self.f(), "(({ct}){{")?;
                 for (i, (name, value)) in members.iter().enumerate() {

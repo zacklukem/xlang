@@ -65,10 +65,9 @@ impl Display for TyKind<'_> {
             }
             TyKind::SizedArray(size, ty) => write!(f, "[{size}]{ty}"),
             TyKind::UnsizedArray(ty) => write!(f, "[]{ty}"),
-            TyKind::Lhs(ty) => write!(f, "{}", ty),
             TyKind::Range(ty) => write!(f, "<RANGE {ty}>"),
             TyKind::Err => write!(f, "<ERR_TYPE>"),
-            TyKind::Unknown => write!(f, "<UNKNOWN>"),
+            TyKind::TyVar(_) => write!(f, "<?>"),
         }
     }
 }
@@ -306,7 +305,6 @@ impl Display for ExprKind<'_> {
             ExprKind::String(string) => f.write_str(string),
             ExprKind::Bool(true) => f.write_str("true"),
             ExprKind::Bool(false) => f.write_str("false"),
-            ExprKind::LhsExpr(expr) => write!(f, "/*lhs*/({})", expr),
             ExprKind::Tuple(exprs) => {
                 f.write_str("(")?;
                 write_expr_array(f, exprs)?;

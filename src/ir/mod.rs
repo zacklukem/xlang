@@ -1,9 +1,16 @@
 //! The IR data structures
 
+pub mod ir_build;
+pub mod ir_display;
+
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
 use crate::ty::{Ty, TyCtx};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub struct ExprId(u32);
 
 pub struct Fun<'ty> {
     pub def_id: DefId,
@@ -16,9 +23,7 @@ pub struct Fun<'ty> {
 ///
 /// Generate using `Module::get_def_id` or other `Module` declaration functions
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
-pub struct DefId {
-    id: u32,
-}
+pub struct DefId(u32);
 
 /// The visibility of a symbol relative to its parent module
 #[derive(Debug)]
@@ -176,9 +181,11 @@ pub enum DefineErr {
 #[derive(Debug)]
 pub struct Module<'ty> {
     next_id: u32,
+    expr_id: Cell<u32>,
     defs: HashMap<DefId, Def<'ty>>,
     def_paths: HashMap<Path, DefId>,
     path_defs: HashMap<DefId, Path>,
+    expr_tys: RefCell<HashMap<ExprId, Ty<'ty>>>,
     pub functions: HashMap<DefId, Fun<'ty>>,
     pub ty_ctx: TyCtx<'ty>,
     pub const_eval: ConstEvaluator,
@@ -189,13 +196,33 @@ impl<'ty> Module<'ty> {
     pub fn new(ty_ctx: TyCtx<'ty>) -> Module<'ty> {
         Module {
             next_id: 0,
+            expr_id: Cell::new(0),
             defs: Default::default(),
             def_paths: Default::default(),
             path_defs: Default::default(),
+            expr_tys: Default::default(),
             ty_ctx,
             functions: Default::default(),
             const_eval: ConstEvaluator {},
         }
+    }
+
+    pub fn set_ty<E>(&self, expr: E, ty: Ty<'ty>)
+    where
+        E: Into<ExprId>,
+    {
+        self.expr_tys.borrow_mut().insert(expr.into(), ty);
+    }
+
+    pub fn ty_of<E>(&self, expr: E) -> Ty<'ty>
+    where
+        E: Into<ExprId>,
+    {
+        *self
+            .expr_tys
+            .borrow()
+            .get(&expr.into())
+            .expect("Internal error")
     }
 
     pub fn defs_iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, DefId, Def<'ty>> {
@@ -205,7 +232,13 @@ impl<'ty> Module<'ty> {
     pub fn get_def_id(&mut self) -> DefId {
         let id = self.next_id;
         self.next_id += 1;
-        DefId { id }
+        DefId(id)
+    }
+
+    fn get_expr_id(&self) -> ExprId {
+        let id = self.expr_id.get();
+        self.expr_id.set(id + 1);
+        ExprId(id)
     }
 
     fn insert_def_path(&mut self, id: DefId, path: Path) {
@@ -355,35 +388,18 @@ pub enum StmtKind<'ty> {
 pub struct Expr<'ty> {
     pub kind: ExprKind<'ty>,
     pub span: Span,
-    pub ty: Ty<'ty>,
+    pub id: ExprId,
     /// Field to pass to first arg of function
     pub fun_pass: Option<Box<Expr<'ty>>>,
 }
 
+impl<'a, 'ty> From<&'a Expr<'ty>> for ExprId {
+    fn from(expr: &'a Expr<'ty>) -> Self {
+        expr.id
+    }
+}
+
 impl<'ty> Expr<'ty> {
-    pub fn new(kind: ExprKind<'ty>, span: Span, ty: Ty<'ty>) -> Expr<'ty> {
-        Expr {
-            kind,
-            span,
-            ty,
-            fun_pass: None,
-        }
-    }
-
-    pub fn new_pass(
-        kind: ExprKind<'ty>,
-        span: Span,
-        ty: Ty<'ty>,
-        fun_pass: Box<Expr<'ty>>,
-    ) -> Expr<'ty> {
-        Expr {
-            kind,
-            span,
-            ty,
-            fun_pass: Some(fun_pass),
-        }
-    }
-
     pub fn fun_pass(&self) -> &Option<Box<Expr>> {
         &self.fun_pass
     }
@@ -392,21 +408,21 @@ impl<'ty> Expr<'ty> {
         &mut self.fun_pass
     }
 
-    pub fn lhs_expr(self, ctx: TyCtx<'ty>) -> Expr<'ty> {
-        let span = self.span.clone();
-        let ty = self.ty.mut_ptr(ctx);
-        Expr::new(ExprKind::LhsExpr(Box::new(self)), span, ty)
-    }
-
     pub fn kind(&self) -> &ExprKind {
         &self.kind
     }
+
     pub fn span(&self) -> &Span {
         &self.span
     }
 
-    pub fn ty(&self) -> Ty<'ty> {
-        self.ty
+    pub fn stmt_kind(self) -> StmtKind<'ty> {
+        StmtKind::Expr(Box::new(self))
+    }
+
+    pub fn stmt(self) -> Stmt<'ty> {
+        let span = self.span.clone();
+        Stmt::new(self.stmt_kind(), span)
     }
 }
 
@@ -543,8 +559,6 @@ pub enum ExprKind<'ty> {
     Bool(bool),
 
     Null,
-
-    LhsExpr(Box<Expr<'ty>>),
 
     Tuple(Vec<Expr<'ty>>),
 

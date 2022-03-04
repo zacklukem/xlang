@@ -98,11 +98,9 @@ impl<'ty> Monomorphize<'ty> {
     pub fn mono_ty(&mut self, ty: Ty<'ty>) {
         use TyKind::*;
         match ty.0 .0 {
-            Pointer(_, inner)
-            | SizedArray(_, inner)
-            | UnsizedArray(inner)
-            | Range(inner)
-            | Lhs(inner) => self.mono_ty(*inner),
+            Pointer(_, inner) | SizedArray(_, inner) | UnsizedArray(inner) | Range(inner) => {
+                self.mono_ty(*inner)
+            }
             Tuple(tys) => {
                 self.special_types.insert(ty);
                 for ty in tys {
@@ -269,10 +267,10 @@ impl<'ty> Monomorphize<'ty> {
 
     pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &[(String, Ty<'ty>)]) {
         use ExprKind::*;
-        let ty = replace_generics(self.module.ty_ctx(), expr.ty(), ty_params);
+        let ty = replace_generics(self.module.ty_ctx(), self.module.ty_of(expr), ty_params);
         self.mono_ty(ty);
         match &expr.kind {
-            Unary(_, inner) | Dot(inner, _) | LhsExpr(inner) | RangeFrom(inner) => {
+            Unary(_, inner) | Dot(inner, _) | RangeFrom(inner) => {
                 self.expr(inner, ty_params);
             }
             Array { members: exprs } | Tuple(exprs) => {
