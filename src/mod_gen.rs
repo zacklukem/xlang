@@ -2,9 +2,8 @@
 
 use crate::ast::{self, TopStmt};
 use crate::error_context::ErrorContext;
-use crate::ir;
-use crate::ir_gen;
 use crate::ty;
+use crate::{ir, tir_lower};
 use std::collections::hash_map;
 use std::collections::HashMap;
 
@@ -628,34 +627,35 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             unreachable!()
         };
 
-        let _def_id = self.module.get_def_id_by_path(&path).unwrap();
+        let def_id = self.module.get_def_id_by_path(&path).unwrap();
 
         let mut tir = Default::default();
 
-        let _tir_stmt = crate::tir::lower_and_type_ast(
+        let stmt = crate::tir::lower_and_type_ast(
             self.module,
             &mut tir,
             self.err,
             return_type,
-            params,
+            &params,
             self.usages,
-            generics,
+            &generics,
             body,
         )?;
 
-        // let body = ir_gen::gen_fun_block(
-        //     self.usages,
-        //     self.module,
-        //     format!("{}", path),
-        //     self.err,
-        //     def_id,
-        //     params,
-        //     return_type,
-        //     body,
-        //     generics,
-        // )?;
+        let body = tir_lower::lower_tir(
+            self.usages,
+            self.module,
+            format!("{}", path),
+            self.err,
+            def_id,
+            params,
+            return_type,
+            generics,
+            stmt,
+            tir,
+        )?;
 
-        // self.module.functions.insert(def_id, body);
+        self.module.functions.insert(def_id, body);
 
         Ok(())
     }

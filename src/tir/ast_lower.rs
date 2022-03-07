@@ -11,7 +11,7 @@ pub fn lower_ast<'ty>(
     tir: &TirCtx<'ty>,
     err: &mut ErrorContext,
     usages: &HashMap<String, ir::Path>,
-    current_generics: &Vec<String>,
+    current_generics: &[String],
     fun_block: &ast::Spanned<ast::FunBlock>,
 ) -> Result<Stmt<'ty>, ModGenError> {
     (AstLowering {
@@ -29,7 +29,7 @@ struct AstLowering<'a, 'ty> {
     tir: &'a TirCtx<'ty>,
     err: &'a mut ErrorContext,
     usages: &'a HashMap<String, ir::Path>,
-    current_generics: &'a Vec<String>,
+    current_generics: &'a [String],
 }
 
 impl<'ast, 'ty, 'a> TypeGenerator<'ast, 'ty> for AstLowering<'a, 'ty> {

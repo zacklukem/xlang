@@ -16,7 +16,7 @@ pub fn tir_infer<'ty>(
     tir: &mut TirCtx<'ty>,
     err: &mut ErrorContext,
     return_type: Ty<'ty>,
-    params: &Vec<(String, Ty<'ty>)>,
+    params: &[(String, Ty<'ty>)],
     stmt: &Stmt<'ty>,
 ) -> InferResult<()> {
     let mut infer = TirInfer {
@@ -31,7 +31,6 @@ pub fn tir_infer<'ty>(
     infer.stmt(stmt)?;
     infer.solve()?;
 
-    println!("ICX: {:#?}", infer.icx);
     Ok(())
 }
 
@@ -556,8 +555,6 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                 let pt = match val {
                     FloatSpecifier::F32(_) => ty::PrimitiveType::F32,
                     FloatSpecifier::F64(_) => ty::PrimitiveType::F64,
-                    // TODO: do something better here?
-                    FloatSpecifier::None(_) => ty::PrimitiveType::F64,
                 };
                 ty::primitive_ty(self.tcx, pt)
             }
@@ -572,6 +569,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
 
     fn solve(&mut self) -> InferResult<()> {
         let replacement = self.icx.solve().unwrap();
+        // TODO: fix this:
         // self.icx.check(&replacement).unwrap();
         print_pass_errors_and_exit(self.err);
         for ty in self.tir.expr_tys.values_mut() {
@@ -636,7 +634,7 @@ struct Scope<'ty> {
 }
 
 impl<'ty> Scope<'ty> {
-    fn from_params(params: &Vec<(String, Ty<'ty>)>) -> Scope<'ty> {
+    fn from_params(params: &[(String, Ty<'ty>)]) -> Scope<'ty> {
         Scope {
             parent: None,
             variables: HashMap::from_iter(params.iter().cloned()),

@@ -2,6 +2,10 @@ use super::*;
 use crate::ty;
 
 impl<'ty> Module<'ty> {
+    pub fn mk_var_expr(&self, varname: String, span: Span, ty: Ty<'ty>) -> Expr<'ty> {
+        self.mk_expr(ExprKind::Ident(varname), span, ty)
+    }
+
     pub fn mk_assign_expr(&self, lhs: Expr<'ty>, op: AssignOp, rhs: Expr<'ty>) -> Expr<'ty> {
         let span = lhs.span().clone();
         let ty = self.ty_of(&lhs);

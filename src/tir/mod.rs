@@ -4,7 +4,9 @@ pub mod visit;
 
 use crate::ast::{self, Span};
 use crate::error_context::ErrorContext;
-use crate::ir::{self, AssignOp, BinOp, InlineCParamType, Path, UnaryOp};
+use crate::ir::{
+    self, AssignOp, BinOp, FloatSpecifier, InlineCParamType, IntegerSpecifier, Path, UnaryOp,
+};
 use crate::mod_gen::ModGenError;
 use crate::ty::Ty;
 use std::cell::Cell;
@@ -15,27 +17,27 @@ pub fn lower_and_type_ast<'ty>(
     tir: &mut TirCtx<'ty>,
     err: &mut ErrorContext,
     return_type: Ty<'ty>,
-    params: Vec<(String, Ty<'ty>)>,
+    params: &[(String, Ty<'ty>)],
     usages: &HashMap<String, ir::Path>,
-    current_generics: Vec<String>,
+    current_generics: &[String],
     fun_block: &ast::Spanned<ast::FunBlock>,
 ) -> Result<Stmt<'ty>, ModGenError> {
-    let stmt = ast_lower::lower_ast(md, tir, err, usages, &current_generics, fun_block)?;
-    tir_infer::tir_infer(md, tir, err, return_type, &params, &stmt)?;
-    stmt.visit(
-        |_| {},
-        |expr| {
-            if !tir.expr_tys.contains_key(&expr.id()) {
-                println!("UNTYPED: {:?}", expr);
-                expr.span().print_msg("UNTYPED!!", "ERROR!")
-            } else {
-                expr.span().print_msg(
-                    &format!("{}", tir.get_ty(expr.id())),
-                    &format!("{:?}", expr),
-                );
-            }
-        },
-    );
+    let stmt = ast_lower::lower_ast(md, tir, err, usages, current_generics, fun_block)?;
+    tir_infer::tir_infer(md, tir, err, return_type, params, &stmt)?;
+    // stmt.visit(
+    //     |_| {},
+    //     |expr| {
+    //         if !tir.expr_tys.contains_key(&expr.id()) {
+    //             println!("UNTYPED: {:?}", expr);
+    //             expr.span().print_msg("UNTYPED!!", "ERROR!")
+    //         } else {
+    //             expr.span().print_msg(
+    //                 &format!("{}", tir.get_ty(expr.id())),
+    //                 &format!("{:?}", expr),
+    //             );
+    //         }
+    //     },
+    // );
     Ok(stmt)
 }
 
@@ -186,29 +188,6 @@ pub enum Range<'ty> {
     Start(Box<Expr<'ty>>),
     End(Box<Expr<'ty>>),
     Full(Box<Expr<'ty>>, Box<Expr<'ty>>),
-}
-
-#[derive(Debug, Clone)]
-pub enum IntegerSpecifier {
-    I8(i8),
-    I16(i16),
-    I32(i32),
-    I64(i64),
-
-    U8(i8),
-    U16(i16),
-    U32(i32),
-    U64(i64),
-    USize(usize),
-    Signed(isize),
-    Unsigned(usize),
-}
-
-#[derive(Debug, Clone)]
-pub enum FloatSpecifier {
-    F32(f32),
-    F64(f64),
-    None(String),
 }
 
 #[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]

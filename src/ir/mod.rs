@@ -451,6 +451,29 @@ impl<'a, 'ty> From<&'a Expr<'ty>> for ExprId {
 }
 
 impl<'ty> Expr<'ty> {
+    pub fn coerce_ref(mut self, md: &Module<'ty>, level: u8) -> Expr<'ty> {
+        let ref_level = md.ty_of(&self).ref_level();
+        // Number of refs/derefs (-2 means deref twice), (+2 means ref twice)
+        let motion = level as i8 - ref_level as i8;
+        if motion == 0 {
+            self
+        } else if motion < 0 {
+            for _ in 0..(-motion as usize) {
+                let span = self.span.clone();
+                let ty = md.ty_of(&self).deref_ty().unwrap();
+                self = md.mk_expr(ExprKind::Unary(UnaryOp::Deref, Box::new(self)), span, ty);
+            }
+            self
+        } else {
+            for _ in 0..(motion as usize) {
+                let span = self.span.clone();
+                let ty = md.ty_of(&self).ptr(md.ty_ctx());
+                self = md.mk_expr(ExprKind::Unary(UnaryOp::Ref, Box::new(self)), span, ty);
+            }
+            self
+        }
+    }
+
     pub fn fun_pass(&self) -> &Option<Box<Expr>> {
         &self.fun_pass
     }
@@ -477,7 +500,7 @@ impl<'ty> Expr<'ty> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum IntegerSpecifier {
     I8(i8),
     I16(i16),
@@ -493,13 +516,13 @@ pub enum IntegerSpecifier {
     Unsigned(usize),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum FloatSpecifier {
     F32(f32),
     F64(f64),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add,
     Sub,
@@ -546,7 +569,7 @@ impl From<&ast::BinOp> for BinOp {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum AssignOp {
     Eq,
     AddEq,
@@ -575,7 +598,7 @@ impl From<&ast::AssignOp> for AssignOp {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
     Neg,
     LogNot,

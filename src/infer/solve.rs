@@ -5,9 +5,6 @@ use super::*;
 type VarCache<'ty> = HashMap<TyVarId, Ty<'ty>>;
 
 impl<'mg, 'ty> InferCtx<'mg, 'ty> {
-    // pub fn solve(&mut self) -> InferResult<()> {
-    //     println!("B4: {:?}", self);
-    // }
 
     fn clean_constraints(&mut self) {
         for constraint in self.constraints.iter_mut() {
@@ -128,7 +125,6 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                 {
                     if let Some(other_ty) = self.solve_for(constraints, visited, cache, *var_id) {
                         let mut constraints = constraints.to_owned();
-                        println!("asdfasdf: {other_ty} {}", *ty);
                         unify(&mut constraints, other_ty, *ty).unwrap();
                         for constraint in &constraints {
                             match constraint {
@@ -184,7 +180,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         }
 
         self.clean_constraints();
-        println!("{:?}", self);
+
         let mut cache = HashMap::new();
         let mut vars = HashMap::with_capacity(self.ty_vars.borrow().len());
         for var in self.ty_vars.borrow().iter() {
@@ -192,13 +188,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             let val = self.solve_for(&self.constraints, &mut visited, &mut cache, *var);
             vars.insert(*var, val);
         }
-        for (id, ty) in vars.iter() {
-            if let Some(ty) = ty {
-                println!("SOLVED: ?{} := {}", id.to_human_readable(), *ty);
-            } else {
-                println!("UNSOLVED: ?{}", id.to_human_readable());
-            }
-        }
+
         Ok(vars
             .into_iter()
             .filter(|(_, b)| b.is_some())

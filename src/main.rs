@@ -18,6 +18,7 @@ pub mod macro_expansion;
 pub mod mod_gen;
 pub mod monomorphize;
 pub mod tir;
+pub mod tir_lower;
 pub mod ty;
 pub mod ty_mangle;
 

@@ -228,6 +228,28 @@ impl<'ty> AdtType<'ty> {
             _ => panic!(),
         }
     }
+
+    pub fn get_method_ty_and_def_id(
+        &self,
+        md: &ir::Module<'ty>,
+        method: &str,
+    ) -> Option<(Ty<'ty>, Vec<Ty<'ty>>, DefId)> {
+        match md.get_def_by_id(self.def_id).kind() {
+            DefKind::Struct {
+                ty_params: _,
+                symbols,
+                ..
+            } => {
+                let def_id = *symbols.get(method)?;
+                let ty = md
+                    .get_def_by_id(def_id)
+                    .fn_type(md.ty_ctx(), &self.ty_params)
+                    .unwrap();
+                Some((ty, self.ty_params.clone(), def_id))
+            }
+            _ => panic!(),
+        }
+    }
 }
 
 impl<'ty> Ty<'ty> {
@@ -236,6 +258,31 @@ impl<'ty> Ty<'ty> {
             self = *ty
         }
         self
+    }
+
+    pub fn deref_ty(self) -> Option<Ty<'ty>> {
+        if let TyKind::Pointer(_, ty) = self.0 .0 {
+            Some(*ty)
+        } else {
+            None
+        }
+    }
+
+    /// Get the ref level of a type, i.e. the number of references:
+    ///
+    /// |Type    |Level|
+    /// |--------|-----|
+    /// | `i8`   | 0   |
+    /// | `*i8`  | 1   |
+    /// | `**i8` | 2   |
+    /// | ...          |
+    ///
+    pub fn ref_level(self) -> u8 {
+        if let TyKind::Pointer(_, ty) = self.0 .0 {
+            ty.ref_level() + 1
+        } else {
+            0
+        }
     }
 
     /// Make a unsized slice of this type
