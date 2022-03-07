@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use super::*;
 use crate::error_context::ErrorContext;
+use crate::frontend::print_pass_errors_and_exit;
 use crate::generics::replace_generics;
 use crate::infer::*;
 use crate::ir;
@@ -16,8 +17,6 @@ pub fn tir_infer<'ty>(
     err: &mut ErrorContext,
     return_type: Ty<'ty>,
     params: &Vec<(String, Ty<'ty>)>,
-    current_generics: &Vec<String>,
-    usages: &HashMap<String, ir::Path>,
     stmt: &Stmt<'ty>,
 ) -> InferResult<()> {
     let mut infer = TirInfer {
@@ -97,8 +96,8 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
 
                 // Setup generic args from first arm
                 // This is a hack, because the first arm isn't always a variant arm
-                let (generics, variant_path) = if let Some(arm) = arms.first() {
-                    if let PatternKind::Variant(path, params) = &arm.pattern.1 {
+                let (generics, _variant_path) = if let Some(arm) = arms.first() {
+                    if let PatternKind::Variant(path, _) = &arm.pattern.1 {
                         let def = self.md.get_def_by_path(path);
                         if let Some(ir::DefKind::Fun {
                             ty_params,
@@ -173,10 +172,10 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                 }
             }
             ForRange {
-                label,
-                initializer,
-                range,
-                block,
+                label: _,
+                initializer: _,
+                range: _,
+                block: _,
             } => {
                 // TODO
             }
@@ -212,7 +211,10 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                     .emit(self.err, stmt.span())
                     .ok();
             }
-            _ => {}
+            Expr(expr) => {
+                self.expr(expr)?;
+            }
+            Return(None) | InlineC { .. } | Continue(..) | Break(..) => (),
         }
         Ok(())
     }
@@ -340,10 +342,14 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                         bool_ty
                     }
                     UnaryOp::Deref => {
-                        let ty = self.icx.mk_var();
-                        let ptr_ty = ty.ptr(self.tcx);
-                        self.icx.eq(ptr_ty, rhs_ty).emit(self.err, rhs.span()).ok();
-                        ty
+                        if let TyKind::Pointer(_, inner_ty) = rhs_ty.0 .0 {
+                            *inner_ty
+                        } else {
+                            let ty = self.icx.mk_var();
+                            let ptr_ty = ty.ptr(self.tcx);
+                            self.icx.eq(ptr_ty, rhs_ty).emit(self.err, rhs.span()).ok();
+                            ty
+                        }
                     }
                     UnaryOp::Ref | UnaryOp::RefMut | UnaryOp::Box => rhs_ty.ptr(self.tcx),
                 }
@@ -566,7 +572,8 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
 
     fn solve(&mut self) -> InferResult<()> {
         let replacement = self.icx.solve().unwrap();
-        self.icx.check(&replacement).unwrap();
+        // self.icx.check(&replacement).unwrap();
+        print_pass_errors_and_exit(self.err);
         for ty in self.tir.expr_tys.values_mut() {
             *ty = replace_ty_int(self.tcx, &replacement, *ty);
         }

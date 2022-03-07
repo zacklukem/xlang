@@ -49,7 +49,7 @@ impl TyVarId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constraint<'ty> {
     /// `{0}` equals `{1}`
     Eq(Ty<'ty>, Ty<'ty>),
@@ -272,7 +272,6 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                         panic!("Not struct type {}", expr);
                     }
                 }
-                _ => (),
             }
         }
         Ok(())

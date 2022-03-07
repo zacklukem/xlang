@@ -187,7 +187,7 @@ fn compile_stl<'ty>(stl: &str, module: &mut ir::Module<'ty>, err: &mut ec::Error
     gen_ir_on(module, err, &mut mod_generators);
 }
 
-fn print_pass_errors_and_exit(err: &ec::ErrorContext) {
+pub fn print_pass_errors_and_exit(err: &ec::ErrorContext) {
     if err.has_errors() {
         err.print_all();
         std::process::exit(1);

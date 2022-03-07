@@ -21,23 +21,19 @@ pub fn lower_and_type_ast<'ty>(
     fun_block: &ast::Spanned<ast::FunBlock>,
 ) -> Result<Stmt<'ty>, ModGenError> {
     let stmt = ast_lower::lower_ast(md, tir, err, usages, &current_generics, fun_block)?;
-    tir_infer::tir_infer(
-        md,
-        tir,
-        err,
-        return_type,
-        &params,
-        &current_generics,
-        usages,
-        &stmt,
-    )?;
+    tir_infer::tir_infer(md, tir, err, return_type, &params, &stmt)?;
     stmt.visit(
         |_| {},
         |expr| {
-            expr.span().print_msg(
-                &format!("{}", tir.get_ty(expr.id())),
-                &format!("{:?}", expr),
-            );
+            if !tir.expr_tys.contains_key(&expr.id()) {
+                println!("UNTYPED: {:?}", expr);
+                expr.span().print_msg("UNTYPED!!", "ERROR!")
+            } else {
+                expr.span().print_msg(
+                    &format!("{}", tir.get_ty(expr.id())),
+                    &format!("{:?}", expr),
+                );
+            }
         },
     );
     Ok(stmt)
@@ -78,6 +74,7 @@ impl<'ty> TirCtx<'ty> {
         self.expr_tys.insert(id, ty);
     }
 
+    #[track_caller]
     pub fn get_ty(&self, id: ExprId) -> Ty<'ty> {
         *self.expr_tys.get(&id).expect("Get ty after types not set")
     }

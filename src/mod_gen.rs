@@ -628,11 +628,11 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             unreachable!()
         };
 
-        let def_id = self.module.get_def_id_by_path(&path).unwrap();
+        let _def_id = self.module.get_def_id_by_path(&path).unwrap();
 
         let mut tir = Default::default();
 
-        let tir_stmt = crate::tir::lower_and_type_ast(
+        let _tir_stmt = crate::tir::lower_and_type_ast(
             self.module,
             &mut tir,
             self.err,
@@ -642,8 +642,6 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             generics,
             body,
         )?;
-
-        panic!();
 
         // let body = ir_gen::gen_fun_block(
         //     self.usages,
