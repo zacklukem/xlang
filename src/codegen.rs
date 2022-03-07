@@ -8,6 +8,7 @@ use crate::monomorphize::DefInstance;
 use crate::ty::{AdtType, PrimitiveType, Ty, TyKind};
 use crate::ty_mangle::mangle_ty_vec;
 use either::Either;
+use log::info;
 use std::collections::HashSet;
 use std::fmt::Result as FmtResult;
 use std::fmt::Write as FmtWrite;
@@ -100,7 +101,8 @@ fn primitive_c_ty(pt: &PrimitiveType) -> &'static str {
         U32 => "uint32_t",
         U16 => "uint16_t",
         U8 => "uint8_t",
-        Integer => panic!(),
+        // TODO: this should panic
+        Integer => "int",
     }
 }
 
@@ -279,6 +281,7 @@ where
             let path = self.md.get_path_by_def_id(mono.def_id);
             match &def.kind {
                 DefKind::Struct { .. } => {
+                    info!("Generating struct declaration: {}", path);
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
                     writeln!(
                         self.header_writer,
@@ -286,6 +289,7 @@ where
                     )?;
                 }
                 DefKind::Enum { .. } => {
+                    info!("Generating enum declaration: {}", path);
                     let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
                     writeln!(
                         self.header_writer,
@@ -308,6 +312,7 @@ where
                 ..
             } = &def.kind
             {
+                info!("Generating function decl: {}", path);
                 let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                 let generics = zip_clone_vec(ty_params, &mono.ty_params);
@@ -466,6 +471,7 @@ where
                         DefKind::Struct {
                             members, ty_params, ..
                         } => {
+                            info!("Generating struct definition: {}", path);
                             let path_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                             let generics = zip_clone_vec(ty_params, &mono.ty_params);
@@ -484,6 +490,7 @@ where
                             ty_params,
                             ..
                         } => {
+                            info!("Generating enum definition: {}", path);
                             let path = mangle_path(path);
                             let path_name = path.clone() + &mangle_ty_vec(&mono.ty_params);
                             let kind_type_name = path.clone() + "_k";
@@ -526,6 +533,7 @@ where
                     ExternKind::Define | ExternKind::VariantConstructor
                 ) =>
                 {
+                    info!("Generating function definition: {}", path);
                     let fun_name = mangle_path(path) + &mangle_ty_vec(&mono.ty_params);
 
                     let generics = zip_clone_vec(ty_params, &mono.ty_params);

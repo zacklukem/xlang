@@ -80,10 +80,10 @@ fun<T> Iter::<T>::next(*self) -> Maybe::<*T> {
     }
 }
 
-fun test_vec_new() {
-    let vec = Vec::new::<i32>();
-    vec.push(32);
-    vec.get(0);
-    let value = vec.pop();
-    @check(value.get() == 32);
-}
+-- fun test_vec_new() {
+--     let vec = Vec::new::<i32>();
+--     vec.push(32);
+--     vec.get(0);
+--     let value = vec.pop();
+--     @check(value.get() == 32);
+-- }

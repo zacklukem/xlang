@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::generics::replace_generics;
 use crate::ir::{DefId, DefKind, Expr, ExprKind, ExternKind, Module, Stmt, StmtKind};
 use crate::ty::{AdtType, Ty, TyKind};
@@ -91,7 +93,7 @@ impl<'ty> Monomorphize<'ty> {
     pub fn print_instances(&self) {
         for mono in &self.monos {
             let path = self.module.get_path_by_def_id(mono.def_id);
-            println!("{} {:?}", path, mono.ty_params);
+            debug!("{} {:?}", path, mono.ty_params);
         }
     }
 

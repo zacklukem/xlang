@@ -2,6 +2,8 @@ use crate::lexer;
 use crate::macro_expansion;
 use crate::{ast, codegen, error_context as ec, ir, mod_gen, monomorphize, parser, ty};
 use clap::Parser;
+use log::error;
+use log::info;
 use std::collections::HashMap;
 use std::fs;
 use std::path;
@@ -61,6 +63,8 @@ pub fn run() {
         gen_ir_on(&mut module, &mut err, &mut generators);
     }
 
+    info!("Monomorphize");
+
     // Monomorphize
     let mut mono = monomorphize::Monomorphize::new(&module);
     mono.run();
@@ -76,6 +80,8 @@ pub fn run() {
     let mut header = std::io::BufWriter::new(header);
     let mut source = std::io::BufWriter::new(source);
 
+    info!("Codegen");
+
     let mut codegen =
         codegen::CodeGen::new(&module, &monos, &special_types, &mut header, &mut source);
     codegen.gen(args.output_file()).unwrap();
@@ -83,6 +89,8 @@ pub fn run() {
 
 fn parse_source<P: AsRef<path::Path>>(filename: P, err: &mut ec::ErrorContext) -> ast::Module {
     let filename_str = filename.as_ref().to_str().unwrap().to_owned();
+    let debug_filename = filename_str.clone();
+    info!("Parsing: {debug_filename}");
     let source_string = std::fs::read_to_string(filename).unwrap();
     let source = std::rc::Rc::new(ast::Source::new(filename_str, source_string));
 
@@ -99,11 +107,12 @@ fn parse_source<P: AsRef<path::Path>>(filename: P, err: &mut ec::ErrorContext) -
             std::process::exit(1)
         }
         Err(e) => {
-            println!("{:#?}", e);
+            error!("{:#?}", e);
             std::process::exit(1)
         }
         Ok(ast_module) => ast_module,
     };
+    info!("Expanding Macros: {debug_filename}");
     macro_expansion::expand_macros(&ast_module, err);
     ast_module
 }
@@ -135,7 +144,7 @@ fn gen_ir_on<'ty>(
             ir::Path::Terminal(mod_name.clone()),
             usages,
         );
-
+        info!("Declare: {mod_name}");
         if mod_gen.declare_all().is_err() {
             print_pass_errors_and_exit(err);
             std::process::exit(1);
@@ -150,6 +159,7 @@ fn gen_ir_on<'ty>(
             ir::Path::Terminal(mod_name.clone()),
             usages,
         );
+        info!("Define: {mod_name}");
         if mod_gen.define_all().is_err() {
             print_pass_errors_and_exit(err);
             std::process::exit(1);

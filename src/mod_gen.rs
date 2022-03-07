@@ -1,5 +1,7 @@
 //! Generates modules
 
+use log::info;
+
 use crate::ast::{self, TopStmt};
 use crate::error_context::ErrorContext;
 use crate::ty;
@@ -603,6 +605,7 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
         for stmt in &self.ast_module.top_stmts {
             if let ast::TopStmt::Fun { name, body, .. } = &stmt.value {
                 let path = self.gen_path(name.value())?;
+                info!("Gen Function: {}", path);
                 self.gen_fun_ir(path, body)?;
             }
         }
@@ -631,6 +634,7 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
 
         let mut tir = Default::default();
 
+        info!("Lower AST: {}", path);
         let stmt = crate::tir::lower_and_type_ast(
             self.module,
             &mut tir,
@@ -642,6 +646,7 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             body,
         )?;
 
+        info!("Lower TIR: {}", path);
         let body = tir_lower::lower_tir(
             self.usages,
             self.module,

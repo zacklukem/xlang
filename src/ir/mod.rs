@@ -378,7 +378,7 @@ impl Stmt<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum InlineCParamType {
     Var,
     Type,

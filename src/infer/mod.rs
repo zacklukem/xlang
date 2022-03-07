@@ -13,7 +13,7 @@ use InferError::*;
 
 #[derive(Debug)]
 pub enum InferError {
-    MismatchedTypes,
+    MismatchedTypes(String),
 }
 
 pub type InferResult<T> = Result<T, InferError>;
@@ -24,8 +24,8 @@ pub trait EmitResult {
 
 impl<T> EmitResult for InferResult<T> {
     fn emit(self, err: &mut ErrorContext, span: &Span) -> Self {
-        if let Err(MismatchedTypes) = &self {
-            err.err("Mismatched types".into(), span);
+        if let Err(MismatchedTypes(s)) = &self {
+            err.err(format!("Mismatched types: {s}"), span);
             self
         } else {
             self
@@ -151,17 +151,18 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     }
 
     pub fn eq(&mut self, lhs: Ty<'ty>, rhs: Ty<'ty>) -> InferResult<()> {
+        let mismatch = || MismatchedTypes(format!("{} != {}", lhs, rhs));
         match (lhs.0 .0, rhs.0 .0) {
             (TyKind::Pointer(l_pt, l_inner), TyKind::Pointer(r_pt, r_inner)) => {
                 if *l_pt != *r_pt {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     self.eq(*l_inner, *r_inner)
                 }
             }
             (TyKind::Tuple(l_tys), TyKind::Tuple(r_tys)) => {
                 if l_tys.len() != r_tys.len() {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     for (lhs, rhs) in l_tys.iter().zip(r_tys) {
                         self.eq(*lhs, *rhs)?;
@@ -172,7 +173,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             (TyKind::Fun(l_params, l_ret), TyKind::Fun(r_params, r_ret)) => {
                 self.eq(*l_ret, *r_ret)?;
                 if l_params.len() != r_params.len() {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     for (lhs, rhs) in l_params.iter().zip(r_params) {
                         self.eq(*lhs, *rhs)?;
@@ -182,7 +183,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             }
             (TyKind::SizedArray(l_size, l_inner), TyKind::SizedArray(r_size, r_inner)) => {
                 if l_size != r_size {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     self.eq(*l_inner, *r_inner)
                 }
@@ -206,7 +207,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                 }),
             ) => {
                 if l_def_id != r_def_id || l_ty_params.len() != r_ty_params.len() {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     for (lhs, rhs) in l_ty_params.iter().zip(r_ty_params) {
                         self.eq(*lhs, *rhs)?;
@@ -216,14 +217,17 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             }
             (TyKind::Param(l_name), TyKind::Param(r_name)) => {
                 if l_name != r_name {
-                    Err(MismatchedTypes)
+                    Err(mismatch())
                 } else {
                     Ok(())
                 }
             }
             (TyKind::Primitive(l_pt), TyKind::Primitive(r_pt)) => {
-                if l_pt != r_pt {
-                    Err(MismatchedTypes)
+                // TODO: make this less... wrong
+                if l_pt.is_integral() && r_pt.is_integral() {
+                    Ok(())
+                } else if l_pt != r_pt {
+                    Err(mismatch())
                 } else {
                     Ok(())
                 }

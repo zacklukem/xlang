@@ -1,3 +1,6 @@
+use env_logger::Env;
+use log::LevelFilter;
+
 #[macro_use]
 extern crate lalrpop_util;
 extern crate clap;
@@ -25,7 +28,9 @@ pub mod ty_mangle;
 lalrpop_mod!(#[allow(clippy::all)] pub parser);
 
 fn main() {
-    env_logger::init();
+    let logger = Env::new().filter_or("RUST_LOG", "TRACE");
+    env_logger::init_from_env(logger);
+
     let start = std::time::Instant::now();
     frontend::run();
     let end = start.elapsed();

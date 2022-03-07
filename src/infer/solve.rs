@@ -5,7 +5,6 @@ use super::*;
 type VarCache<'ty> = HashMap<TyVarId, Ty<'ty>>;
 
 impl<'mg, 'ty> InferCtx<'mg, 'ty> {
-
     fn clean_constraints(&mut self) {
         for constraint in self.constraints.iter_mut() {
             if let Constraint::Eq(lhs, Ty(Int(TyKind::TyVar(ty_var)))) = constraint {
@@ -223,17 +222,18 @@ pub fn unify<'ty>(
     lhs: Ty<'ty>,
     rhs: Ty<'ty>,
 ) -> InferResult<()> {
+    let mismatch = || MismatchedTypes(format!("{} != {}", lhs, rhs));
     match (lhs.0 .0, rhs.0 .0) {
         (TyKind::Pointer(l_pt, l_inner), TyKind::Pointer(r_pt, r_inner)) => {
             if *l_pt != *r_pt {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 unify(constraints, *l_inner, *r_inner)
             }
         }
         (TyKind::Tuple(l_tys), TyKind::Tuple(r_tys)) => {
             if l_tys.len() != r_tys.len() {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 for (lhs, rhs) in l_tys.iter().zip(r_tys) {
                     unify(constraints, *lhs, *rhs)?;
@@ -244,7 +244,7 @@ pub fn unify<'ty>(
         (TyKind::Fun(l_params, l_ret), TyKind::Fun(r_params, r_ret)) => {
             unify(constraints, *l_ret, *r_ret)?;
             if l_params.len() != r_params.len() {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 for (lhs, rhs) in l_params.iter().zip(r_params) {
                     unify(constraints, *lhs, *rhs)?;
@@ -254,7 +254,7 @@ pub fn unify<'ty>(
         }
         (TyKind::SizedArray(l_size, l_inner), TyKind::SizedArray(r_size, r_inner)) => {
             if l_size != r_size {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 unify(constraints, *l_inner, *r_inner)
             }
@@ -278,7 +278,7 @@ pub fn unify<'ty>(
             }),
         ) => {
             if l_def_id != r_def_id || l_ty_params.len() != r_ty_params.len() {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 for (lhs, rhs) in l_ty_params.iter().zip(r_ty_params) {
                     unify(constraints, *lhs, *rhs)?;
@@ -288,14 +288,17 @@ pub fn unify<'ty>(
         }
         (TyKind::Param(l_name), TyKind::Param(r_name)) => {
             if l_name != r_name {
-                Err(MismatchedTypes)
+                Err(mismatch())
             } else {
                 Ok(())
             }
         }
         (TyKind::Primitive(l_pt), TyKind::Primitive(r_pt)) => {
-            if l_pt != r_pt {
-                Err(MismatchedTypes)
+            // TODO: make this less... wrong
+            if l_pt.is_integral() && r_pt.is_integral() {
+                Ok(())
+            } else if l_pt != r_pt {
+                Err(mismatch())
             } else {
                 Ok(())
             }

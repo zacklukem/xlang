@@ -104,7 +104,26 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                 outputs,
                 code,
             } => {
-                let (inputs, outputs, code) = (inputs.clone(), outputs.clone(), code.clone());
+                let inputs = inputs
+                    .iter()
+                    .map(|(pt, varname, replace_name)| {
+                        let varname = match pt {
+                            ir::InlineCParamType::Var => {
+                                self.scope.resolve(varname).unwrap().clone()
+                            }
+                            _ => varname.clone(),
+                        };
+                        (*pt, varname, replace_name.clone())
+                    })
+                    .collect();
+                let outputs = outputs
+                    .iter()
+                    .map(|(replace_name, pt, varname)| {
+                        let varname = self.scope.resolve(varname).unwrap();
+                        (replace_name.clone(), *pt, varname.clone())
+                    })
+                    .collect();
+                let code = code.clone();
                 ir::StmtKind::InlineC {
                     inputs,
                     outputs,
