@@ -8,17 +8,26 @@ pub enum<T> Maybe {
 }
 
 fun<T, U> Maybe::<T>::zip(*self, other: Maybe::<U>) -> Maybe::<(T, U)> {
+    ret None();
     case *self {
     | Some(lhs) ->
         case other {
         | Some(rhs) ->
-            ret Some::<(T, U)>((lhs, rhs));
+            ret Some((lhs, rhs));
         | None ->
-            ret None::<(T, U)>();
+            ret None();
         }
     | None ->
-        ret None::<(T, U)>();
+        ret None();
     }
+    -- Should be:
+    -- case (*self, other) {
+    -- | (Some(lhs), Some(rhs)) ->
+    --     ret Some((lhs, rhs));
+    -- | _ ->
+    --     ret None();
+    -- }
+    -- but compiler is not ready yet...
 }
 
 --* Return the value of the Maybe or else panic

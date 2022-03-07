@@ -1,10 +1,11 @@
 //! Data structures relating to types
 
 use crate::ast;
+use crate::generics::replace_generics;
 use crate::infer::TyVarId;
 use crate::intern::Arena;
 use crate::intern::Int;
-use crate::ir::{DefId, Path};
+use crate::ir::{self, DefId, DefKind, Path};
 
 pub struct TyCtxContainer<'ty> {
     ctx: TyCtxS<'ty>,
@@ -148,7 +149,7 @@ impl From<&ast::PrimitiveType> for PrimitiveType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
 pub enum PointerType {
     StarMut,
     Star,
@@ -189,7 +190,54 @@ pub struct AdtType<'ty> {
     pub ty_params: Vec<Ty<'ty>>,
 }
 
+impl<'ty> AdtType<'ty> {
+    pub fn get_field(&self, md: &ir::Module<'ty>, field: &str) -> Option<Ty<'ty>> {
+        match md.get_def_by_id(self.def_id).kind() {
+            DefKind::Struct {
+                ty_params: ty_param_names,
+                members,
+                ..
+            } => {
+                let ty = *members.get(field)?;
+                let generics = ty_param_names
+                    .iter()
+                    .cloned()
+                    .zip(self.ty_params.iter().copied())
+                    .collect::<Vec<_>>();
+                let ty = replace_generics(md.ty_ctx(), ty, &generics);
+                Some(ty)
+            }
+            _ => panic!(),
+        }
+    }
+
+    pub fn get_method_ty(&self, md: &ir::Module<'ty>, method: &str) -> Option<Ty<'ty>> {
+        match md.get_def_by_id(self.def_id).kind() {
+            DefKind::Struct {
+                ty_params: _,
+                symbols,
+                ..
+            } => {
+                let def_id = *symbols.get(method)?;
+                let ty = md
+                    .get_def_by_id(def_id)
+                    .fn_type(md.ty_ctx(), &self.ty_params)
+                    .unwrap();
+                Some(ty)
+            }
+            _ => panic!(),
+        }
+    }
+}
+
 impl<'ty> Ty<'ty> {
+    pub fn full_deref_ty(mut self) -> Ty<'ty> {
+        while let TyKind::Pointer(_, ty) = self.0 .0 {
+            self = *ty
+        }
+        self
+    }
+
     /// Make a unsized slice of this type
     pub fn slice_ty(self, ctx: TyCtx<'ty>) -> Ty<'ty> {
         ctx.int(TyKind::UnsizedArray(self))

@@ -25,7 +25,7 @@ pub fn gen_fun_block<'ast, 'ty, 'mg>(
 ) -> Result<ir::Fun<'ty>, ModGenError> {
     let (block, variable_defs) = {
         let mut ir_gen = IrGen {
-            icx: InferCtx::new(module.ty_ctx),
+            icx: InferCtx::new(module),
             usages,
             var_id: 0,
             md: module,
@@ -93,7 +93,7 @@ struct IrGen<'ty, 'mg> {
     label_next: Option<String>,
     return_type: ty::Ty<'ty>,
     current_generics: Vec<String>,
-    icx: InferCtx<'ty>,
+    icx: InferCtx<'mg, 'ty>,
 }
 
 fn continue_label(v: &str) -> String {

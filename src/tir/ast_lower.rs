@@ -11,7 +11,7 @@ pub fn lower_ast<'ty>(
     tir: &TirCtx<'ty>,
     err: &mut ErrorContext,
     usages: &HashMap<String, ir::Path>,
-    current_generics: Vec<String>,
+    current_generics: &Vec<String>,
     fun_block: &ast::Spanned<ast::FunBlock>,
 ) -> Result<Stmt<'ty>, ModGenError> {
     (AstLowering {
@@ -29,12 +29,12 @@ struct AstLowering<'a, 'ty> {
     tir: &'a TirCtx<'ty>,
     err: &'a mut ErrorContext,
     usages: &'a HashMap<String, ir::Path>,
-    current_generics: Vec<String>,
+    current_generics: &'a Vec<String>,
 }
 
 impl<'ast, 'ty, 'a> TypeGenerator<'ast, 'ty> for AstLowering<'a, 'ty> {
     fn current_generics(&self) -> &[String] {
-        &self.current_generics
+        self.current_generics
     }
 
     fn module(&self) -> &ir::Module<'ty> {
@@ -246,10 +246,17 @@ impl<'a, 'ty> AstLowering<'a, 'ty> {
             ast::Expr::Cast(lhs, _, ty) => {
                 ExprKind::Cast(Box::new(self.expr(lhs)?), self.gen_type(ty)?)
             }
-            ast::Expr::Range(range) => {
-                todo!()
-                // ExprKind::Range(Box::new(self.expr(lhs)?), self.gen_type(ty)?)
-            }
+            ast::Expr::Range(range) => match range {
+                ast::Range::All(_) => ExprKind::Range(Range::All),
+                ast::Range::Start(expr, _) => {
+                    ExprKind::Range(Range::Start(Box::new(self.expr(expr)?)))
+                }
+                ast::Range::End(_, expr) => ExprKind::Range(Range::End(Box::new(self.expr(expr)?))),
+                ast::Range::Full(lhs, _, rhs) => ExprKind::Range(Range::Full(
+                    Box::new(self.expr(lhs)?),
+                    Box::new(self.expr(rhs)?),
+                )),
+            },
             ast::Expr::Ternary {
                 condition,
                 then_expr,
@@ -333,11 +340,14 @@ impl<'a, 'ty> AstLowering<'a, 'ty> {
                 PatternKind::Tuple(members)
             }
             ast::Pattern::Ident(name) => {
-                if let ast::Name::Ident(name, tys) = name.value() {
-                    assert!(tys.is_empty());
-                    PatternKind::Ident(name.str().to_owned())
-                } else {
-                    panic!()
+                let path = self.gen_path(name.value())?;
+                match path {
+                    Path::Terminal(name) => PatternKind::Ident(name.clone()),
+                    path => {
+                        let pattern =
+                            Box::new(Pattern(name.span.clone(), PatternKind::Tuple(Vec::new())));
+                        PatternKind::Variant(path, pattern)
+                    }
                 }
             }
         };

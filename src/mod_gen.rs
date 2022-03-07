@@ -636,12 +636,12 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             self.module,
             &mut tir,
             self.err,
+            return_type,
+            params,
             self.usages,
             generics,
             body,
         )?;
-
-        println!("{:#?}", tir_stmt);
 
         panic!();
 

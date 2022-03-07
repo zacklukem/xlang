@@ -1,4 +1,6 @@
-mod ast_lower;
+pub mod ast_lower;
+pub mod tir_infer;
+pub mod visit;
 
 use crate::ast::{self, Span};
 use crate::error_context::ErrorContext;
@@ -12,11 +14,33 @@ pub fn lower_and_type_ast<'ty>(
     md: &ir::Module<'ty>,
     tir: &mut TirCtx<'ty>,
     err: &mut ErrorContext,
+    return_type: Ty<'ty>,
+    params: Vec<(String, Ty<'ty>)>,
     usages: &HashMap<String, ir::Path>,
     current_generics: Vec<String>,
     fun_block: &ast::Spanned<ast::FunBlock>,
 ) -> Result<Stmt<'ty>, ModGenError> {
-    ast_lower::lower_ast(md, tir, err, usages, current_generics, fun_block)
+    let stmt = ast_lower::lower_ast(md, tir, err, usages, &current_generics, fun_block)?;
+    tir_infer::tir_infer(
+        md,
+        tir,
+        err,
+        return_type,
+        &params,
+        &current_generics,
+        usages,
+        &stmt,
+    )?;
+    stmt.visit(
+        |_| {},
+        |expr| {
+            expr.span().print_msg(
+                &format!("{}", tir.get_ty(expr.id())),
+                &format!("{:?}", expr),
+            );
+        },
+    );
+    Ok(stmt)
 }
 
 #[derive(Default)]
@@ -24,6 +48,7 @@ pub struct TirCtx<'ty> {
     next_stmt: Cell<u32>,
     next_expr: Cell<u32>,
     expr_tys: HashMap<ExprId, Ty<'ty>>,
+    stmt_tys: HashMap<StmtId, Ty<'ty>>,
 }
 
 impl<'ty> TirCtx<'ty> {
@@ -53,8 +78,16 @@ impl<'ty> TirCtx<'ty> {
         self.expr_tys.insert(id, ty);
     }
 
-    pub fn _get_ty(&self, id: ExprId) -> Ty<'ty> {
+    pub fn get_ty(&self, id: ExprId) -> Ty<'ty> {
         *self.expr_tys.get(&id).expect("Get ty after types not set")
+    }
+
+    pub fn set_stmt_ty(&mut self, id: StmtId, ty: Ty<'ty>) {
+        self.stmt_tys.insert(id, ty);
+    }
+
+    pub fn get_stmt_ty(&self, id: StmtId) -> Ty<'ty> {
+        *self.stmt_tys.get(&id).expect("Get ty on non let stmt")
     }
 }
 

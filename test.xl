@@ -1,0 +1,34 @@
+struct<T, K> MyStruct {
+    a: i32,
+    b: T,
+    c: K,
+}
+
+enum<T, K> Either {
+    Left(T),
+    Right(K),
+}
+
+-- fun main()
+
+fun<T, K> MyStruct::<T, K>::stuff(*self, d: i32) -> Either::<T, K> {
+    let e = d + (1 as i32);
+    let s = MyStruct::mk(self.a, self.b, self.c);
+    if s.a_plus(e) < (10 as i32) {
+        ret Either::Left(s.b);
+    } else {
+        ret Either::Right(s.c);
+    }
+}
+
+fun<T, K> MyStruct::<T, K>::mk(a: i32, b: T, c: K) -> MyStruct::<T, K> {
+    ret MyStruct of {
+        a: a,
+        b: b,
+        c: c,
+    };
+}
+
+fun<T, K> MyStruct::<T, K>::a_plus(*self, d: i32) -> i32 {
+    ret self.a + d;
+}

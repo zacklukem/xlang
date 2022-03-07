@@ -5,7 +5,8 @@ pub mod ir_display;
 
 use crate::ast::{self, Span};
 use crate::const_eval::ConstEvaluator;
-use crate::ty::{Ty, TyCtx};
+use crate::generics::replace_generics;
+use crate::ty::{Ty, TyCtx, TyKind};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
@@ -39,7 +40,7 @@ pub struct Def<'ty> {
     pub external: bool,
 }
 
-impl Def<'_> {
+impl<'ty> Def<'ty> {
     pub fn new(visibility: DefVisibility, kind: DefKind) -> Def {
         Def {
             visibility,
@@ -47,12 +48,62 @@ impl Def<'_> {
             external: false,
         }
     }
+
     pub fn new_extern(visibility: DefVisibility, kind: DefKind) -> Def {
         Def {
             visibility,
             kind,
             external: true,
         }
+    }
+
+    pub fn get_struct_fields(
+        &self,
+    ) -> Option<(
+        &Vec<String>,
+        &HashMap<String, Ty<'ty>>,
+        &HashMap<String, DefId>,
+    )> {
+        if let DefKind::Struct {
+            ty_params,
+            members,
+            symbols,
+        } = &self.kind
+        {
+            Some((ty_params, members, symbols))
+        } else {
+            None
+        }
+    }
+
+    pub fn fn_type(&self, tcx: TyCtx<'ty>, generics: &[Ty<'ty>]) -> Option<Ty<'ty>> {
+        if let DefKind::Fun {
+            ty_params,
+            return_type,
+            params,
+            ..
+        } = &self.kind
+        {
+            assert_eq!(ty_params.len(), generics.len());
+            let generics = ty_params
+                .iter()
+                .cloned()
+                .zip(generics.iter().copied())
+                .collect::<Vec<_>>();
+            let return_type = replace_generics(tcx, *return_type, &generics);
+            let params = params
+                .iter()
+                .map(|(_, param)| replace_generics(tcx, *param, &generics))
+                .collect::<Vec<_>>();
+
+            Some(tcx.int(TyKind::Fun(params, return_type)))
+        } else {
+            None
+        }
+    }
+
+    pub fn kind(&self) -> &DefKind<'ty> {
+        &self.kind
     }
 }
 
