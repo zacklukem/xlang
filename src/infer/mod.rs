@@ -1,3 +1,11 @@
+//! Code for type inference.
+//!
+//! The infer crate contains the [`InferCtx`] structure which is used to generate
+//! a list of constraints and then using these constraints, solve for any unknown
+//! type variables.
+//!
+//! This is used in the [`tir::tir_infer`] module to infer types inside a function body.
+
 pub mod solve;
 
 use crate::ast::Span;
@@ -13,14 +21,24 @@ use InferError::*;
 
 #[derive(Debug)]
 pub enum InferError {
+    /// There exists some mismatched types
     MismatchedTypes(String),
+
+    /// A type was expected to be an ADT
     ExpectedAdt(String),
+
+    /// The solve was unable to resolve a given type variable
     UnableToResolve(TyVarId),
 }
 
 pub type InferResult<T> = Result<T, InferError>;
 
 pub trait EmitResult {
+    /// Emits the error contained in a [`Result`] to an [`ErrorContext`] at the given
+    /// location.
+    ///
+    /// This will return the Result passed as an argument, which can either be
+    /// handled somehow or ignored depending on the context.
     fn emit(self, err: &mut ErrorContext, span: &Span) -> Self;
 }
 
@@ -38,10 +56,13 @@ impl<T> EmitResult for InferResult<T> {
     }
 }
 
+/// A TyVarId represents a unique identifier for each type variable in a context.
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct TyVarId(u32);
 
 impl TyVarId {
+    /// Converts the id to a human readable string by converting it to a base
+    /// 26 number and stringifying it where each digit is a capital letter.
     pub fn to_human_readable(self) -> String {
         let mut id = self.0 + 1;
         let mut out = String::new();
@@ -54,6 +75,13 @@ impl TyVarId {
     }
 }
 
+/// A constraint represents a predicate applied based on the source code.
+///
+/// For example, calling a function may assert a predicate stating that the
+/// type of each parameter expression equals the expected type of a parameter.
+///
+/// These constraints are assumed to be true when compiled into a [`InferCtx`],
+/// then if any constraints contradict each-other an error should be emitted
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constraint<'ty> {
     /// `{0}` equals `{1}`
@@ -72,6 +100,12 @@ pub enum Constraint<'ty> {
 }
 
 impl<'ty> Constraint<'ty> {
+    /// This returns true if two constraints are equivalent.
+    ///
+    /// Two [`Eq`] constraints are equivalent if their to operands are equal,
+    /// regardless of the order of the operands.  This differs from the [`eq`]
+    /// function implemented from the [`PartialEq`] trait, which will return false
+    /// if the order of the operands is different.
     pub fn equiv(&self, rhs: &Constraint<'ty>) -> bool {
         match (self, rhs) {
             (Constraint::Eq(ty0l, ty1l), Constraint::Eq(ty0r, ty1r)) => {
@@ -94,10 +128,16 @@ impl<'ty> Display for Constraint<'ty> {
 
 pub struct InferCtx<'mg, 'ty> {
     ctx: TyCtx<'ty>,
-    next_id: Cell<u32>,
-    constraints: Vec<Constraint<'ty>>,
-    ty_vars: RefCell<Vec<TyVarId>>,
     md: &'mg ir::Module<'ty>,
+
+    /// This represents the next type variable id to be created.
+    next_id: Cell<u32>,
+
+    /// This contains a list of all type variables created.
+    ty_vars: RefCell<Vec<TyVarId>>,
+
+    /// The constraints that have been applied to this inference context
+    constraints: Vec<Constraint<'ty>>,
 }
 
 impl<'mg, 'ty> Debug for InferCtx<'mg, 'ty> {
@@ -129,10 +169,16 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         ty_var
     }
 
+    /// Create a new type var.  This type var must be placed somewhere and constrained, as the
+    /// [`solve`] function will attempt to solve for all type variables, so if a type var is
+    /// not constrained somehow, it cannot be resolved.
     pub fn mk_var(&self) -> Ty<'ty> {
         self.ctx.int(TyKind::TyVar(self.mk_var_id()))
     }
 
+    /// Create a new [`Constraint::Field`] constraint.
+    ///
+    /// Claims that `{expr}.{field} = {ty}`
     pub fn field(&mut self, expr: Ty<'ty>, field: String, ty: Ty<'ty>) -> InferResult<()> {
         let expected_adt = || ExpectedAdt(format!("{}", expr));
         match expr.full_deref_ty().0 .0 {
@@ -161,6 +207,9 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         Ok(())
     }
 
+    /// Create a new [`Constraint::Method`] constraint.
+    ///
+    /// Claims that `{expr}.{method}(..) = {ty}`
     pub fn method(&mut self, expr: Ty<'ty>, method: String, ty: Ty<'ty>) -> InferResult<()> {
         let expected_adt = || ExpectedAdt(format!("{}", expr));
         match expr.full_deref_ty().0 .0 {
@@ -189,6 +238,9 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         Ok(())
     }
 
+    /// Create a new [`Constraint::Eq`] constraint.
+    ///
+    /// Claims that `lhs = rhs`
     pub fn eq(&mut self, lhs: Ty<'ty>, rhs: Ty<'ty>) -> InferResult<()> {
         let mismatch = || MismatchedTypes(format!("{} != {}", lhs, rhs));
         match (lhs.0 .0, rhs.0 .0) {
@@ -279,6 +331,10 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         }
     }
 
+    /// This function checks all the constraints for correctness.  This is called
+    /// with the result of the [`InferCtx::solve`] function and will replace all
+    /// constraint types with definite types then assert that all the Constraints
+    /// are correct.
     pub fn check(&self, replacement: &HashMap<TyVarId, Ty<'ty>>) -> InferResult<()> {
         for constraint in &self.constraints {
             match constraint {
@@ -321,6 +377,8 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     }
 }
 
+/// Check if a given type is definite, where definite types are all types that
+/// have no type variables present.
 pub fn is_definite_ty(ty: Ty) -> bool {
     match ty.0 .0 {
         TyKind::Pointer(_, ty)

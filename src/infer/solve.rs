@@ -1,6 +1,33 @@
+//! Code for solving a [`InferCtx`]
+//!
+//! The algorithm is somewhat naive, but works ok for basic type inference.
+//!
+//! The basic algorithm is first to clean the constraints by moving any single
+//! type variables to be the left operand of their respective equality predicates,
+//! then removing any exact duplicate constraints.  This is done in the
+//! [`clean_constraints`] function.
+//!
+//! Next the algorithm iterates over the constraints and tries to substitute and
+//! unify type variables purely iterating downwards.  This part of the algorithm
+//! is somewhat flawed and should be replaced or removed (the whole algorithm is
+//! not very easy to prove or efficient)
+//!
+//! Next the algorithm iterates over all type variables and attempts to solve
+//! for the type variables type.  This is done by calling the [`solve_for`]
+//! function which recursively looks for a type variable and solves for any
+//! unsolved type variables in the right side of a constraint.  This caches
+//! all solved type variables for efficiency and maintains a list of all
+//! visited type variables to prevent infinite recursion.  If there is no simple
+//! constraint for a type variable, the algorithm attempts to unify the variable
+//! and solve for it again.
+//!
+//! Next the algorithm looks at each [`Constraint::Method`] and attempts to unify
+//! the constraint.
+//!
+//! Finally, the algorithm once again iterates through all type variables and
+//! attempts to solve the remaining unsolved variables using [`solve_for`]
+
 use std::collections::HashSet;
-
-
 
 use super::*;
 
@@ -15,6 +42,8 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                 *constraint = Constraint::Eq(lhs_prime, rhs_prime);
             }
         }
+        // TODO: this randomizes the order of the constraints which may lead to
+        //       inconsistent compilation results
         let mut values = HashSet::with_capacity(self.constraints.len());
         for constraint in self.constraints.drain(..) {
             values.insert(constraint);
@@ -155,6 +184,11 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         None
     }
 
+    /// Solves the [`InferCtx`] for all type variables.
+    ///
+    /// Returns a map of type variables to definite types.
+    ///
+    /// See [`infer::solve`] for details.
     pub fn solve(&mut self) -> InferResult<HashMap<TyVarId, Ty<'ty>>> {
         self.clean_constraints();
 
@@ -253,7 +287,8 @@ pub fn contains_ty_var<'ty>(id: TyVarId, ty: Ty<'ty>) -> bool {
     }
 }
 
-pub fn unify<'ty>(
+/// Unify two types into the given list of constraints
+fn unify<'ty>(
     constraints: &mut Vec<Constraint<'ty>>,
     lhs: Ty<'ty>,
     rhs: Ty<'ty>,
