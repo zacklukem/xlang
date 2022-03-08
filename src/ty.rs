@@ -329,6 +329,33 @@ impl<'ty> AdtType<'ty> {
 }
 
 impl<'ty> Ty<'ty> {
+    /// Returns true if this type is a subtype of or equal to the given type.  This currently
+    /// only applies to integer types and void pointers.
+    ///
+    /// ```text
+    /// forall T . (*T) `subtype_of` (*void)
+    /// forall T . (*void) `subtype_of` (*T)
+    /// ```
+    pub fn subtype_of(self, other: Ty<'ty>) -> bool {
+        match (self.kind(), other.kind()) {
+            (TyKind::Primitive(lpt), TyKind::Primitive(rpt)) => lpt < rpt,
+            (
+                TyKind::Pointer(_, _),
+                TyKind::Pointer(_, Ty(Int(TyKind::Primitive(PrimitiveType::Void)))),
+            )
+            | (
+                TyKind::Pointer(_, Ty(Int(TyKind::Primitive(PrimitiveType::Void)))),
+                TyKind::Pointer(_, _),
+            ) => true,
+            _ => self == other,
+        }
+    }
+
+    /// Get the type kind contained in this `Ty`
+    pub fn kind(self) -> &'ty TyKind<'ty> {
+        self.0 .0
+    }
+
     /// Fully dereference a type by converting pointers to their inner values.
     /// For example, `****T` becomes `T`.
     pub fn full_deref_ty(mut self) -> Ty<'ty> {
