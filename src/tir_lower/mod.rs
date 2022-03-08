@@ -1,5 +1,6 @@
 //! Handles generation of the IR
 
+mod case;
 mod expr;
 mod helpers;
 mod scope;

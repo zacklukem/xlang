@@ -1,10 +1,10 @@
 use super::*;
 
 impl<'ty> Stmt<'ty> {
-    pub fn visit<S, E>(&self, mut s: S, e: E)
+    pub fn visit<S, E>(&self, s: &mut S, e: &mut E)
     where
-        S: FnMut(&Stmt<'ty>) + Clone,
-        E: FnMut(&Expr<'ty>) + Clone,
+        S: FnMut(&Stmt<'ty>),
+        E: FnMut(&Expr<'ty>),
     {
         match self.kind() {
             StmtKind::If {
@@ -12,36 +12,36 @@ impl<'ty> Stmt<'ty> {
                 block,
                 else_block,
             } => {
-                condition.visit(e.clone());
-                block.visit(s.clone(), e.clone());
+                condition.visit(e);
+                block.visit(s, e);
                 if let Some(else_block) = else_block {
-                    else_block.visit(s.clone(), e);
+                    else_block.visit(s, e);
                 }
             }
             StmtKind::While {
                 condition, block, ..
             } => {
-                condition.visit(e.clone());
-                block.visit(s.clone(), e);
+                condition.visit(e);
+                block.visit(s, e);
             }
-            StmtKind::Loop { block, .. } => block.visit(s.clone(), e),
+            StmtKind::Loop { block, .. } => block.visit(s, e),
 
             StmtKind::Case { expr, arms } => {
-                expr.visit(e.clone());
+                expr.visit(e);
                 for arm in arms {
                     for stmt in &arm.stmts {
-                        stmt.visit(s.clone(), e.clone());
+                        stmt.visit(s, e);
                     }
                 }
             }
             StmtKind::ForRange { range, block, .. } => {
-                range.visit(e.clone());
-                block.visit(s.clone(), e);
+                range.visit(e);
+                block.visit(s, e);
             }
 
             StmtKind::Block(stmts) => {
                 for stmt in stmts {
-                    stmt.visit(s.clone(), e.clone());
+                    stmt.visit(s, e);
                 }
             }
 
@@ -59,14 +59,14 @@ impl<'ty> Stmt<'ty> {
 }
 
 impl<'ty> Expr<'ty> {
-    pub fn visit<F>(&self, mut f: F)
+    pub fn visit<F>(&self, f: &mut F)
     where
-        F: FnMut(&Expr<'ty>) + Clone,
+        F: FnMut(&Expr<'ty>),
     {
         match self.kind() {
             ExprKind::Array { members: exprs } | ExprKind::Tuple(exprs) => {
                 for expr in exprs {
-                    expr.visit(f.clone());
+                    expr.visit(f);
                 }
             }
 
@@ -77,35 +77,35 @@ impl<'ty> Expr<'ty> {
             | ExprKind::Range(Range::Full(lhs, rhs))
             | ExprKind::Assign(lhs, _, rhs)
             | ExprKind::Binary(lhs, _, rhs) => {
-                lhs.visit(f.clone());
-                rhs.visit(f.clone());
+                lhs.visit(f);
+                rhs.visit(f);
             }
             ExprKind::Unary(_, expr)
             | ExprKind::Dot(expr, _)
             | ExprKind::Range(Range::Start(expr))
             | ExprKind::Range(Range::End(expr))
-            | ExprKind::Cast(expr, _) => expr.visit(f.clone()),
+            | ExprKind::Cast(expr, _) => expr.visit(f),
             ExprKind::Ternary {
                 condition,
                 then_expr,
                 else_expr,
             } => {
-                condition.visit(f.clone());
-                then_expr.visit(f.clone());
-                else_expr.visit(f.clone());
+                condition.visit(f);
+                then_expr.visit(f);
+                else_expr.visit(f);
             }
             ExprKind::Call { expr, arguments }
             | ExprKind::DotCall {
                 expr, arguments, ..
             } => {
-                expr.visit(f.clone());
+                expr.visit(f);
                 for expr in arguments {
-                    expr.visit(f.clone());
+                    expr.visit(f);
                 }
             }
             ExprKind::Struct { members, .. } => {
                 for (_, expr) in members {
-                    expr.visit(f.clone());
+                    expr.visit(f);
                 }
             }
             ExprKind::Range(Range::All)

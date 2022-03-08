@@ -20,7 +20,8 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
             tir::ExprKind::Null => ir::ExprKind::Null,
 
             tir::ExprKind::Ident(name, generics) => {
-                let value = self.resolve_value(&name, &generics);
+                let generics = generics.borrow();
+                let value = self.resolve_value(&name, generics.as_ref());
                 if value.is_none() {
                     self.err
                         .err(format!("Name `{}` not found in scope", span.str()), &span);
@@ -107,7 +108,7 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                         panic!()
                     };
                 // TODO: coerce expr to correct reference type
-                let expr = expr.coerce_ref(self.md, 0);
+                let expr = expr.coerce_ref(self.md, 1);
                 let arguments = {
                     let mut out_args = Vec::with_capacity(arguments.len() + 1);
                     out_args.push(expr);

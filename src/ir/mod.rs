@@ -421,7 +421,7 @@ pub enum StmtKind<'ty> {
 
     Switch {
         expr: Box<Expr<'ty>>,
-        cases: Vec<(Box<Expr<'ty>>, Box<Stmt<'ty>>)>,
+        cases: Vec<(Expr<'ty>, Stmt<'ty>)>,
         default: Option<Box<Stmt<'ty>>>,
     },
 
@@ -625,6 +625,28 @@ impl From<&ast::UnaryOp> for UnaryOp {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind<'ty> {
+    /// Gets the discriminant of an enum value
+    ///
+    /// `Discriminant(expr)` generates something like `expr.kind`
+    Discriminant(Box<Expr<'ty>>),
+
+    /// Get the value of a particular variant
+    ///
+    /// Used for patterns to get the data out of an enum
+    /// `GetVariant(expr, "VariantName")` compiles to something like
+    /// `expr.VariantName`.
+    GetVariant(Box<Expr<'ty>>, String),
+
+    /// A constant value which is the value of the discriminant of an enum at the
+    /// given path.  For example, `DiscriminantValue(module::Enum::Variant)`
+    /// compiles to something like `module_Enum_Variant_k`
+    DiscriminantValue(Path),
+
+    /// Get a value from a tuple
+    ///
+    /// `TupleValue(expr, 0)` compiles to something like `expr._0`
+    TupleValue(Box<Expr<'ty>>, u8),
+
     Ident(String),
     GlobalIdent(Path, Vec<Ty<'ty>>),
     Integer(IntegerSpecifier),

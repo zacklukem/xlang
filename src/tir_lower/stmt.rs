@@ -14,6 +14,7 @@ fn break_label(v: &str) -> String {
 impl<'ty, 'mg> TirLower<'ty, 'mg> {
     pub fn stmt(&mut self, stmt: &tir::Stmt<'ty>) -> LowerResult<ir::Stmt<'ty>> {
         let span = stmt.span().clone();
+        let label_next = self.label_next.take();
         let kind = match stmt.kind() {
             tir::StmtKind::Case { expr, arms } => self.gen_case_stmt(stmt, expr.as_ref(), &arms)?,
 
@@ -131,10 +132,17 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                 }
             }
 
-            tir::StmtKind::Block(stmts) => {
-                let stmts = map_to_vec(stmts, |stmt| self.stmt(stmt))?;
-                ir::StmtKind::Block(stmts)
-            }
+            tir::StmtKind::Block(stmts) => self.in_scope(|this| {
+                let mut stmts = map_to_vec(stmts, |stmt| this.stmt(stmt))?;
+                let label_next = std::mem::take(&mut this.label_next);
+                if let Some(label) = label_next {
+                    stmts.push(ir::Stmt::new(
+                        ir::StmtKind::Labeled(label, None),
+                        span.clone(),
+                    ))
+                }
+                Ok(ir::StmtKind::Block(stmts))
+            })?,
 
             tir::StmtKind::Return(Some(expr)) => {
                 ir::StmtKind::Return(Some(Box::new(self.expr(expr)?)))
@@ -189,17 +197,16 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                 ir::StmtKind::Expr(expr)
             }
         };
-        Ok(ir::Stmt::new(kind, span))
-    }
+        let stmt = ir::Stmt::new(kind, span.clone());
 
-    fn gen_case_stmt(
-        &mut self,
-        stmt: &tir::Stmt<'ty>,
-        expr: &tir::Expr<'ty>,
-        arms: &[tir::Arm<'ty>],
-    ) -> LowerResult<ir::StmtKind<'ty>> {
-        // todo!()
-        Ok(ir::StmtKind::Labeled("asdfasdfasdf".to_string(), None))
+        if let Some(label) = label_next {
+            Ok(ir::Stmt::new(
+                ir::StmtKind::Labeled(label, Some(Box::new(stmt))),
+                span,
+            ))
+        } else {
+            Ok(stmt)
+        }
     }
 
     fn gen_let_stmt(

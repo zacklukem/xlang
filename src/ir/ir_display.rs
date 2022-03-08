@@ -346,6 +346,12 @@ impl Display for ExprKind<'_> {
                 f.write_str("}")
             }
             ExprKind::Err => f.write_str("<ERR_EXPR>"),
+            ExprKind::Discriminant(expr) => {
+                write!(f, "_Discriminant({expr})")
+            }
+            ExprKind::GetVariant(expr, variant) => write!(f, "_GetVariant({expr}, {variant})"),
+            ExprKind::DiscriminantValue(path) => write!(f, "_DiscriminantValue({path})"),
+            ExprKind::TupleValue(expr, i) => write!(f, "{expr}.{i}"),
         }
     }
 }

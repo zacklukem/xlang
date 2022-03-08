@@ -14,6 +14,8 @@ use InferError::*;
 #[derive(Debug)]
 pub enum InferError {
     MismatchedTypes(String),
+    ExpectedAdt(String),
+    UnableToResolve(TyVarId),
 }
 
 pub type InferResult<T> = Result<T, InferError>;
@@ -27,6 +29,9 @@ impl<T> EmitResult for InferResult<T> {
         if let Err(MismatchedTypes(s)) = &self {
             err.err(format!("Mismatched types: {s}"), span);
             self
+        } else if let Err(_) = &self {
+            self.unwrap();
+            unreachable!();
         } else {
             self
         }
@@ -129,23 +134,57 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     }
 
     pub fn field(&mut self, expr: Ty<'ty>, field: String, ty: Ty<'ty>) -> InferResult<()> {
-        match expr.0 .0 {
-            // TODO: get access to module here
-            // TyKind::Adt(AdtType { def_id, path, ty_params }) => {
+        let expected_adt = || ExpectedAdt(format!("{}", expr));
+        match expr.full_deref_ty().0 .0 {
+            TyKind::Adt(adt) => {
+                if let Some(fty) = adt.get_field(self.md, &field) {
+                    self.eq(ty, fty)?;
+                }
+            }
 
-            // }
-            _ => self.constraints.push(Constraint::Field(expr, field, ty)),
+            TyKind::Pointer(..) => {
+                panic!("Deref failed");
+            }
+
+            TyKind::Primitive(..)
+            | TyKind::Param(..)
+            | TyKind::Tuple(..)
+            | TyKind::Fun(..)
+            | TyKind::SizedArray(..)
+            | TyKind::UnsizedArray(..)
+            | TyKind::Range(..) => {
+                return Err(expected_adt());
+            }
+            TyKind::TyVar(_) => self.constraints.push(Constraint::Field(expr, field, ty)),
+            TyKind::Err => (),
         }
         Ok(())
     }
 
     pub fn method(&mut self, expr: Ty<'ty>, method: String, ty: Ty<'ty>) -> InferResult<()> {
-        match expr.0 .0 {
-            // TODO: get access to module here
-            // TyKind::Adt(AdtType { def_id, path, ty_params }) => {
-
-            // }
-            _ => self.constraints.push(Constraint::Method(expr, method, ty)),
+        let expected_adt = || ExpectedAdt(format!("{}", expr));
+        match expr.full_deref_ty().0 .0 {
+            TyKind::Adt(adt) => {
+                if let Some(mty) = adt.get_method_ty(self.md, &method) {
+                    self.eq(ty, mty)?;
+                }
+            }
+            TyKind::Param(..) => {
+                todo!("Handle tyvar traits");
+            }
+            TyKind::Pointer(..) => {
+                panic!("Deref failed");
+            }
+            TyKind::Primitive(..)
+            | TyKind::Tuple(..)
+            | TyKind::Fun(..)
+            | TyKind::SizedArray(..)
+            | TyKind::UnsizedArray(..)
+            | TyKind::Range(..) => {
+                return Err(expected_adt());
+            }
+            TyKind::TyVar(_) => self.constraints.push(Constraint::Method(expr, method, ty)),
+            TyKind::Err => (),
         }
         Ok(())
     }
@@ -282,7 +321,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     }
 }
 
-fn is_definite_ty(ty: Ty) -> bool {
+pub fn is_definite_ty(ty: Ty) -> bool {
     match ty.0 .0 {
         TyKind::Pointer(_, ty)
         | TyKind::Range(ty)

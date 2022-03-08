@@ -1,10 +1,14 @@
 use std::collections::VecDeque;
 
+use log::debug;
+
 use super::*;
 use crate::error_context::ErrorContext;
 use crate::frontend::print_pass_errors_and_exit;
 use crate::generics::replace_generics;
+use crate::infer::solve::contains_ty_var;
 use crate::infer::*;
+use crate::intern::Int;
 use crate::ir;
 use crate::mod_gen::ModGenError;
 use crate::ty::{self, AdtType, Ty, TyCtx, TyKind};
@@ -29,7 +33,7 @@ pub fn tir_infer<'ty>(
         scope: Box::new(Scope::from_params(params)),
     };
     infer.stmt(stmt)?;
-    infer.solve()?;
+    infer.solve(stmt)?;
 
     Ok(())
 }
@@ -177,6 +181,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                 block: _,
             } => {
                 // TODO
+                todo!()
             }
             Let {
                 pattern,
@@ -185,14 +190,14 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                 ..
             } => {
                 if let Pattern(_, PatternKind::Ident(var_name)) = pattern.as_ref() {
+                    let expr_ty = self.expr(expr)?;
                     let ty = if let Some(type_name) = type_name {
                         *type_name
                     } else {
-                        self.icx.mk_var()
+                        expr_ty
                     };
                     self.scope.insert(var_name.clone(), ty);
-                    let expr_ty = self.expr(expr)?;
-                    self.icx.eq(expr_ty, ty).emit(self.err, expr.span()).ok();
+                    // self.icx.eq(expr_ty, ty).emit(self.err, expr.span()).ok();
                 } else {
                     todo!()
                 }
@@ -218,7 +223,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
         Ok(())
     }
 
-    fn resolve_path_ty(&mut self, span: &Span, path: &Path, ty_args: &[Ty<'ty>]) -> Ty<'ty> {
+    fn gen_ident(&mut self, span: &Span, path: &Path, ty_args: &RefCell<Vec<Ty<'ty>>>) -> Ty<'ty> {
         // First see if the ident is in scope as a local variable
         if let Path::Terminal(id) = &path {
             if let Some(ty) = self.scope.resolve(&id) {
@@ -237,22 +242,19 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
             ..
         }) = self.md.get_def_by_path(path)
         {
+            let mut ty_args = ty_args.borrow_mut();
             if !ty_args.is_empty() && ty_args.len() != ty_params.len() {
                 self.err.err("Invalid type params".to_owned(), span);
                 return ty::err_ty(self.tcx);
             }
-            let generics: Vec<_> = if ty_args.is_empty() {
-                ty_params
-                    .iter()
-                    .map(|param_name| (param_name.clone(), self.icx.mk_var()))
-                    .collect()
-            } else {
-                ty_params
-                    .iter()
-                    .cloned()
-                    .zip(ty_args.iter().copied())
-                    .collect()
-            };
+            if ty_args.is_empty() {
+                *ty_args = ty_params.iter().map(|_| self.icx.mk_var()).collect()
+            }
+            let generics: Vec<_> = ty_params
+                .iter()
+                .cloned()
+                .zip(ty_args.iter().copied())
+                .collect();
 
             let ty = TyKind::Fun(params.iter().map(|(_, ty)| *ty).collect(), *return_type);
             let ty = self.tcx.int(ty);
@@ -269,7 +271,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
             Null, Range, String as StringExpr, Struct, Ternary, Tuple, Unary,
         };
         let ty = match expr.kind() {
-            Ident(path, ty_args) => self.resolve_path_ty(expr.span(), path, ty_args),
+            Ident(path, ty_args) => self.gen_ident(expr.span(), path, ty_args),
             Null => ty::void_ty(self.tcx).ptr(self.tcx),
 
             Tuple(exprs) => {
@@ -355,12 +357,21 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
             }
             Dot(expr, field) => {
                 let expr_ty = self.expr(expr)?;
-                let ty = self.icx.mk_var();
-                self.icx
-                    .field(expr_ty, field.clone(), ty)
-                    .emit(self.err, expr.span())
-                    .ok();
-                ty
+                if let TyKind::Adt(adt) = expr_ty.full_deref_ty().0 .0 {
+                    if let Some(ty) = adt.get_field(self.md, field) {
+                        ty
+                    } else {
+                        self.err.err(format!("No such field: {field}"), expr.span());
+                        ty::err_ty(self.tcx)
+                    }
+                } else {
+                    let ty = self.icx.mk_var();
+                    self.icx
+                        .field(expr_ty, field.clone(), ty)
+                        .emit(self.err, expr.span())
+                        .ok();
+                    ty
+                }
             }
             Cast(expr, ty) => {
                 let _expr_ty = self.expr(expr)?;
@@ -422,13 +433,30 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                     .map(|expr| self.expr(expr))
                     .collect::<InferResult<VecDeque<_>>>()?;
                 argument_tys.push_front(expr_ty.ptr(self.tcx));
-                let ret_ty = self.icx.mk_var();
-                let fun_ty = self.tcx.int(TyKind::Fun(argument_tys.into(), ret_ty));
-                self.icx
-                    .method(expr_ty, field.clone(), fun_ty)
-                    .emit(self.err, expr.span())
-                    .ok();
-                ret_ty
+
+                if let TyKind::Adt(adt) = expr_ty.full_deref_ty().0 .0 {
+                    if let Some(Ty(Int(TyKind::Fun(arg_tys, ret_ty)))) =
+                        adt.get_method_ty(self.md, field)
+                    {
+                        assert_eq!(arg_tys.len(), argument_tys.len());
+                        for (l, r) in arg_tys.iter().zip(argument_tys) {
+                            self.icx.eq(*l, r).emit(self.err, expr.span()).ok();
+                        }
+                        *ret_ty
+                    } else {
+                        self.err
+                            .err(format!("No such method: {field}"), expr.span());
+                        ty::err_ty(self.tcx)
+                    }
+                } else {
+                    let ret_ty = self.icx.mk_var();
+                    let fun_ty = self.tcx.int(TyKind::Fun(argument_tys.into(), ret_ty));
+                    self.icx
+                        .method(expr_ty, field.clone(), fun_ty)
+                        .emit(self.err, expr.span())
+                        .ok();
+                    ret_ty
+                }
             }
             Call { expr, arguments } => {
                 let expr_ty = self.expr(expr)?;
@@ -567,11 +595,36 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
         Ok(ty)
     }
 
-    fn solve(&mut self) -> InferResult<()> {
-        let replacement = self.icx.solve().unwrap();
+    fn solve(&mut self, stmt: &Stmt<'ty>) -> InferResult<()> {
+        let replacement = match self.icx.solve() {
+            Ok(s) => s,
+            Err(InferError::UnableToResolve(id)) => {
+                stmt.visit(&mut |_| {}, &mut |e| {
+                    let ty = self.tir.get_ty(e.id());
+                    // if contains_ty_var(id, ty) {
+                    self.err
+                        .err(format!("Unable to resolve type: {ty}"), e.span());
+                    // }
+                });
+                debug!("{:?}", self.icx);
+                print_pass_errors_and_exit(self.err);
+                panic!();
+            }
+            Err(e) => {
+                panic!("ERROR: {:?}", e);
+            }
+        };
         // TODO: fix this:
         // self.icx.check(&replacement).unwrap();
         print_pass_errors_and_exit(self.err);
+        stmt.visit(&mut |_| {}, &mut |e| {
+            if let ExprKind::Ident(_, tys) = e.kind() {
+                let mut tys = tys.borrow_mut();
+                for ty in tys.iter_mut() {
+                    *ty = replace_ty_int(self.tcx, &replacement, *ty);
+                }
+            }
+        });
         for ty in self.tir.expr_tys.values_mut() {
             *ty = replace_ty_int(self.tcx, &replacement, *ty);
         }

@@ -9,7 +9,7 @@ use crate::ir::{
 };
 use crate::mod_gen::ModGenError;
 use crate::ty::Ty;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
 pub fn lower_and_type_ast<'ty>(
@@ -24,20 +24,17 @@ pub fn lower_and_type_ast<'ty>(
 ) -> Result<Stmt<'ty>, ModGenError> {
     let stmt = ast_lower::lower_ast(md, tir, err, usages, current_generics, fun_block)?;
     tir_infer::tir_infer(md, tir, err, return_type, params, &stmt)?;
-    // stmt.visit(
-    //     |_| {},
-    //     |expr| {
-    //         if !tir.expr_tys.contains_key(&expr.id()) {
-    //             println!("UNTYPED: {:?}", expr);
-    //             expr.span().print_msg("UNTYPED!!", "ERROR!")
-    //         } else {
-    //             expr.span().print_msg(
-    //                 &format!("{}", tir.get_ty(expr.id())),
-    //                 &format!("{:?}", expr),
-    //             );
-    //         }
-    //     },
-    // );
+    // stmt.visit(&mut |_| {}, &mut |expr| {
+    //     if !tir.expr_tys.contains_key(&expr.id()) {
+    //         println!("UNTYPED: {:?}", expr);
+    //         expr.span().print_msg("UNTYPED!!", "ERROR!")
+    //     } else {
+    //         expr.span().print_msg(
+    //             &format!("{}", tir.get_ty(expr.id())),
+    //             &format!("{:?}", expr),
+    //         );
+    //     }
+    // });
     Ok(stmt)
 }
 
@@ -98,6 +95,16 @@ pub enum PatternKind {
     Variant(Path, Box<Pattern>),
     Tuple(Vec<Pattern>),
     Ident(String),
+}
+
+impl Pattern {
+    pub fn kind(&self) -> &PatternKind {
+        &self.1
+    }
+
+    pub fn span(&self) -> &Span {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -216,7 +223,7 @@ impl<'ty> Expr<'ty> {
 
 #[derive(Debug, Clone)]
 pub enum ExprKind<'ty> {
-    Ident(Path, Vec<Ty<'ty>>),
+    Ident(Path, RefCell<Vec<Ty<'ty>>>),
     Integer(IntegerSpecifier),
     Float(FloatSpecifier),
     String(String),

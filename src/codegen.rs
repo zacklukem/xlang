@@ -8,7 +8,7 @@ use crate::monomorphize::DefInstance;
 use crate::ty::{AdtType, PrimitiveType, Ty, TyKind};
 use crate::ty_mangle::mangle_ty_vec;
 use either::Either;
-use log::info;
+use log::{info, trace};
 use std::collections::HashSet;
 use std::fmt::Result as FmtResult;
 use std::fmt::Write as FmtWrite;
@@ -360,7 +360,7 @@ where
     fn type_index(&self, ty: Ty<'ty>) -> usize {
         // TODO: handle recursive data types
         match &ty.0 .0 {
-            TyKind::Param(_) => todo!(),
+            TyKind::Param(_) => todo!("{}", ty),
             TyKind::Tuple(tys) => tys.iter().map(|ty| self.type_index(*ty)).max().unwrap_or(0) + 1,
             TyKind::SizedArray(_, ty) => self.type_index(*ty),
             TyKind::Range(ty) => self.type_index(*ty),
@@ -418,6 +418,7 @@ where
         let mut defs: Vec<(usize, Either<Ty<'ty>, DefInstance<'ty>>)> = Vec::new();
 
         for ty in self.special_types {
+            trace!("{}", *ty);
             let idx = self.type_index(*ty);
             defs.push((idx, Either::Left(*ty)));
         }
@@ -898,6 +899,21 @@ where
                     }
                 }
                 write!(self.f(), "}})")?;
+            }
+            Discriminant(expr) => {
+                self.expr(expr, ty_params)?;
+                write!(self.f(), ".kind");
+            }
+            GetVariant(expr, variant_name) => {
+                self.expr(expr, ty_params)?;
+                write!(self.f(), ".{variant_name}");
+            }
+            DiscriminantValue(path) => {
+                write!(self.f(), "{}_k", mangle_path(path));
+            }
+            TupleValue(expr, i) => {
+                self.expr(expr, ty_params)?;
+                write!(self.f(), "._{i}");
             }
             Err => todo!(),
         }

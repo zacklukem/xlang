@@ -171,6 +171,8 @@ impl<'ty> Monomorphize<'ty> {
             .monos
             .insert(DefInstance::new(def_id, ty_params_types.into()))
         {
+            let path = self.module.get_path_by_def_id(def_id);
+            debug!("Monomorphize {} {:?}", path, ty_params_names);
             assert_eq!(ty_params_names.len(), ty_params_types.len());
             let ty_params = Iterator::zip(
                 ty_params_names.iter().cloned(),
@@ -269,10 +271,16 @@ impl<'ty> Monomorphize<'ty> {
 
     pub fn expr(&mut self, expr: &Expr<'ty>, ty_params: &[(String, Ty<'ty>)]) {
         use ExprKind::*;
+        debug!("expr {:?}", ty_params);
         let ty = replace_generics(self.module.ty_ctx(), self.module.ty_of(expr), ty_params);
         self.mono_ty(ty);
         match &expr.kind {
-            Unary(_, inner) | Dot(inner, _) | RangeFrom(inner) => {
+            Discriminant(inner)
+            | GetVariant(inner, _)
+            | TupleValue(inner, _)
+            | Unary(_, inner)
+            | Dot(inner, _)
+            | RangeFrom(inner) => {
                 self.expr(inner, ty_params);
             }
             Array { members: exprs } | Tuple(exprs) => {
@@ -323,7 +331,8 @@ impl<'ty> Monomorphize<'ty> {
                     self.expr(expr, ty_params);
                 }
             }
-            Ident(_) | Integer(_) | Float(_) | String(_) | Bool(_) | Null | Err => (),
+            DiscriminantValue(_) | Ident(_) | Integer(_) | Float(_) | String(_) | Bool(_)
+            | Null | Err => (),
         }
     }
 

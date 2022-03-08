@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use log::debug;
+
 use super::*;
 
 type VarCache<'ty> = HashMap<TyVarId, Ty<'ty>>;
@@ -109,7 +111,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                             cache.insert(id, ty);
                             return Some(ty);
                         } else {
-                            panic!("{}", ty);
+                            // panic!("{}", ty);
                         }
                     }
                 }
@@ -188,6 +190,40 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             vars.insert(*var, val);
         }
 
+        // TODO: maybe dont copy the constraints..
+        for constraint in self.constraints.clone().into_iter() {
+            match constraint {
+                Constraint::Method(ty, method, target_ty) => {
+                    let mut visited = HashSet::new();
+                    let struct_ty = self.solve_ty(&self.constraints, &mut visited, &mut cache, ty);
+                    if let Some(Ty(Int(TyKind::Adt(adt)))) = struct_ty {
+                        if let Some(method_ty) = adt.get_method_ty(self.md, &method) {
+                            self.eq(method_ty, target_ty)?;
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        self.clean_constraints();
+
+        let mut cache = HashMap::new();
+        let mut vars = HashMap::with_capacity(self.ty_vars.borrow().len());
+        for var in self.ty_vars.borrow().iter() {
+            if !vars.contains_key(var) {
+                let mut visited = HashSet::new();
+                let val = self.solve_for(&self.constraints, &mut visited, &mut cache, *var);
+                vars.insert(*var, val);
+            }
+        }
+
+        for (id, var) in &vars {
+            if var.is_none() {
+                return Err(UnableToResolve(*id));
+            }
+        }
+
         Ok(vars
             .into_iter()
             .filter(|(_, b)| b.is_some())
@@ -196,7 +232,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     }
 }
 
-fn contains_ty_var<'ty>(id: TyVarId, ty: Ty<'ty>) -> bool {
+pub fn contains_ty_var<'ty>(id: TyVarId, ty: Ty<'ty>) -> bool {
     match ty.0 .0 {
         TyKind::Tuple(tys) | TyKind::Adt(AdtType { ty_params: tys, .. }) => {
             tys.iter().any(|ty| contains_ty_var(id, *ty))

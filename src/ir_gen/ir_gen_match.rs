@@ -141,11 +141,9 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
         let mut stmts = Vec::new();
 
         let pattern_var = self.declare_hidden_var(ty);
-        let pattern_var = self.md.mk_expr(
-            ir::ExprKind::Ident(pattern_var),
-            expr.span().clone(),
-            ty,
-        );
+        let pattern_var =
+            self.md
+                .mk_expr(ir::ExprKind::Ident(pattern_var), expr.span().clone(), ty);
 
         stmts.push(ir::Stmt::new(
             ir::StmtKind::Expr(Box::new(self.md.mk_expr(
@@ -247,7 +245,7 @@ impl<'ty, 'mg> IrGen<'ty, 'mg> {
 
                             let block_expr =
                                 ir::Stmt::new(ir::StmtKind::Block(stmts), span.clone());
-                            cases.push((Box::new(discriminant_expr), Box::new(block_expr)));
+                            cases.push((discriminant_expr, block_expr));
                             Ok(())
                         })?;
                     } else {

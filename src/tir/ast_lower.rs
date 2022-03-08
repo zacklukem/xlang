@@ -202,7 +202,7 @@ impl<'a, 'ty> AstLowering<'a, 'ty> {
         let expr_kind = match expr.value() {
             ast::Expr::Ident(name) => {
                 let (path, generics) = self.gen_path_and_generics(name)?;
-                ExprKind::Ident(path, generics)
+                ExprKind::Ident(path, RefCell::new(generics))
             }
             ast::Expr::Integer(val, _) => {
                 let st = val.str();
