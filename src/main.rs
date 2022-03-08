@@ -1,6 +1,5 @@
 use env_logger::Env;
 
-
 #[macro_use]
 extern crate lalrpop_util;
 extern crate clap;
@@ -15,7 +14,6 @@ pub mod generics;
 pub mod infer;
 pub mod intern;
 pub mod ir;
-pub mod ir_gen;
 pub mod lexer;
 pub mod macro_expansion;
 pub mod mod_gen;
