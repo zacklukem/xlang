@@ -1,0 +1,17 @@
+fun main() -> i32 {
+    let i = 20;
+    loop {
+        if i == 3 {
+            break;
+        }
+        i -= 1;
+    }
+    loop {
+        i -= 1;
+        if i != 0 {
+            continue;
+        }
+        break;
+    }
+    ret i;
+}

@@ -1,0 +1,7 @@
+fun main() -> i32 {
+    let value = 0;
+    {
+        let value = 45;
+    }
+    ret value;
+}

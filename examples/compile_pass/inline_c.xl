@@ -1,0 +1,8 @@
+fun main() -> i32 {
+    let out = 2;
+    let val = 0;
+    @c(var val: $val; $out: var out; "
+        $out =  $val;
+    ");
+    ret out;
+}
