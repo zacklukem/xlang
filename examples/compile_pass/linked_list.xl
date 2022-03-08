@@ -27,11 +27,11 @@ struct<T> Node {
 }
 
 fun<T> List::<T>::new() -> List::<T> {
-    ret List::<T> of { head: null, };
+    ret List of { head: null, };
 }
 
 fun<T> List::<T>::len(*self) -> usize {
-    let k = Node::len::<T>;
+    let k = Node::len;
     if self.head == null {
         ret 0;
     } else {
@@ -61,7 +61,7 @@ fun<T> List::<T>::reverse(*self) {
 }
 
 fun<T> List::<T>::push_front(*self, val: T) {
-    self.head = box Node::<T> of {
+    self.head = box Node of {
         data: val,
         next: self.head,
     };
@@ -69,7 +69,7 @@ fun<T> List::<T>::push_front(*self, val: T) {
 
 fun<T> List::<T>::push_back(*self, val: T) {
     if self.head == null {
-        self.head = box Node::<T> of {
+        self.head = box Node of {
             data: val,
             next: null,
         };
@@ -80,7 +80,7 @@ fun<T> List::<T>::push_back(*self, val: T) {
 
 fun<T> Node::<T>::push_back(*self, val: T) {
     if self.next == null {
-        self.next = box Node::<T> of {
+        self.next = box Node of {
             data: val,
             next: null,
         };

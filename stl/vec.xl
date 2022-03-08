@@ -10,8 +10,8 @@ struct<T> Vec {
 }
 
 fun<T> Vec::<T>::new() -> Vec::<T> {
-    ret Vec::<T> of {
-        data: mem::allocate::<T>(8),
+    ret Vec of {
+        data: mem::allocate(8),
         len: 0,
         cap: 8,
     };
@@ -20,35 +20,35 @@ fun<T> Vec::<T>::new() -> Vec::<T> {
 fun<T> Vec::<T>::push(*self, data: T) {
     if self.len == self.cap {
         self.cap += 8;
-        mem::resize::<T>(&self.data, self.cap);
+        mem::resize(&self.data, self.cap);
     }
-    let at = mem::ptr_at::<T>(self.data, self.len);
+    let at = mem::ptr_at(self.data, self.len);
     *at = data;
     self.len += 1;
 }
 
 fun<T> Vec::<T>::pop(*self) -> Maybe::<T> {
     if self.len == 0 {
-        ret None::<T>();
+        ret None();
     } else {
         self.len -= 1;
-        let at = mem::ptr_at::<T>(self.data, self.len);
-        ret Some::<T>(*at);
+        let at = mem::ptr_at(self.data, self.len);
+        ret Some(*at);
     }
 }
 
 fun<T> Vec::<T>::at(*self, idx: usize) -> Maybe::<*T> {
     if idx < self.len {
-        let at = mem::ptr_at::<T>(self.data, self.len);
-        ret Some::<*T>(at);
+        let at = mem::ptr_at(self.data, self.len);
+        ret Some(at);
     } else {
-        ret None::<*T>();
+        ret None();
     }
 }
 
 fun<T> Vec::<T>::get(*self, idx: usize) -> *T {
     if idx < self.len {
-        let at = mem::ptr_at::<T>(self.data, self.len);
+        let at = mem::ptr_at(self.data, self.len);
         ret at;
     } else {
         @panic("Index out of bounds");
@@ -60,7 +60,7 @@ fun<T> Vec::<T>::free(*self) {
 }
 
 fun<T> Vec::<T>::iter(*self) -> Iter::<T> {
-    ret Iter::<T> of {
+    ret Iter of {
         data: self,
         idx: 0,
     };
@@ -74,16 +74,16 @@ struct<T> Iter {
 fun<T> Iter::<T>::next(*self) -> Maybe::<*T> {
     if self.idx < self.data.len {
         self.idx += 1;
-        ret Some::<*T>(self.data.get(self.idx - 1));
+        ret Some(self.data.get(self.idx - 1));
     } else {
-        ret None::<*T>();
+        ret None();
     }
 }
 
--- fun test_vec_new() {
---     let vec = Vec::new::<i32>();
---     vec.push(32);
---     vec.get(0);
---     let value = vec.pop();
---     @check(value.get() == 32);
--- }
+fun test_vec_new() {
+    let vec = Vec::new::<i32>();
+    vec.push(32);
+    vec.get(0);
+    let value = vec.pop();
+    @check(value.get() == 32);
+}

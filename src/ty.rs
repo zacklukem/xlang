@@ -213,7 +213,12 @@ impl<'ty> AdtType<'ty> {
 
     pub fn get_method_ty(&self, md: &ir::Module<'ty>, method: &str) -> Option<Ty<'ty>> {
         match md.get_def_by_id(self.def_id).kind() {
-            DefKind::Struct {
+            DefKind::Enum {
+                ty_params: _,
+                symbols,
+                ..
+            }
+            | DefKind::Struct {
                 ty_params: _,
                 symbols,
                 ..
@@ -225,7 +230,7 @@ impl<'ty> AdtType<'ty> {
                     .unwrap();
                 Some(ty)
             }
-            _ => panic!(),
+            def => panic!("{:?}", def),
         }
     }
 
@@ -235,7 +240,12 @@ impl<'ty> AdtType<'ty> {
         method: &str,
     ) -> Option<(Ty<'ty>, Vec<Ty<'ty>>, DefId)> {
         match md.get_def_by_id(self.def_id).kind() {
-            DefKind::Struct {
+            DefKind::Enum {
+                ty_params: _,
+                symbols,
+                ..
+            }
+            | DefKind::Struct {
                 ty_params: _,
                 symbols,
                 ..
