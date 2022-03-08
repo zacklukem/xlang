@@ -7,6 +7,7 @@ use crate::intern::Arena;
 use crate::intern::Int;
 use crate::ir::{self, DefId, DefKind, Path};
 
+/// This contains the owned type context.
 pub struct TyCtxContainer<'ty> {
     ctx: TyCtxS<'ty>,
 }
@@ -31,43 +32,50 @@ impl<'ty> TyCtxContainer<'ty> {
     }
 }
 
+/// The type context is an internment arena for all types
 #[derive(Debug, Clone, Copy)]
 pub struct TyCtx<'ty>(&'ty TyCtxS<'ty>);
 
 #[derive(Debug)]
-pub struct TyCtxS<'ty> {
+struct TyCtxS<'ty> {
     pub ty_arena: Arena<TyKind<'ty>>,
 }
 
 impl<'ty> TyCtx<'ty> {
-    /// Intern a type and get its Ty
+    /// Intern a type kind and get its Ty
     pub fn int(self, ty: TyKind<'ty>) -> Ty<'ty> {
         Ty(self.0.ty_arena.int(ty))
     }
 }
 
+/// Create a new range type with usize
 pub fn range_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Range(
         ctx.int(TyKind::Primitive(PrimitiveType::USize)),
     ))
 }
 
+/// Create a new primitive type
 pub fn primitive_ty(ctx: TyCtx<'_>, pt: PrimitiveType) -> Ty<'_> {
     ctx.int(TyKind::Primitive(pt))
 }
 
+/// Create a void type
 pub fn void_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     primitive_ty(ctx, PrimitiveType::Void)
 }
 
+/// Create a bool type
 pub fn bool_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     primitive_ty(ctx, PrimitiveType::Bool)
 }
 
+/// Create an error type
 pub fn err_ty(ctx: TyCtx<'_>) -> Ty<'_> {
     ctx.int(TyKind::Err)
 }
 
+/// This represents all primitive types
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Hash, Eq)]
 pub enum PrimitiveType {
     Void,
@@ -81,17 +89,21 @@ pub enum PrimitiveType {
     I16,
     I8,
 
+    // Pointer size unsigned integer
     USize,
 
+    // Unsigned integers
     U64,
     U32,
     U16,
     U8,
 
+    /// Integer represents an integer with unknown size and sign
     Integer,
 }
 
 impl PrimitiveType {
+    /// Returns true if the primitive type is either a float or an integer
     pub fn is_numeric(&self) -> bool {
         matches!(
             self,
@@ -109,9 +121,13 @@ impl PrimitiveType {
                 | PrimitiveType::F64
         )
     }
+
+    /// Returns true if the primitive type is a float
     pub fn is_float(&self) -> bool {
         matches!(self, PrimitiveType::F32 | PrimitiveType::F64)
     }
+
+    /// Returns true if the primitive type is an integer of any size or sign
     pub fn is_integral(&self) -> bool {
         matches!(
             self,
@@ -149,9 +165,12 @@ impl From<&ast::PrimitiveType> for PrimitiveType {
     }
 }
 
+/// The type of a pointer
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
 pub enum PointerType {
+    /// Mutable pointer
     StarMut,
+    /// Immutable pointer (currently treated as mutable)
     Star,
 }
 
@@ -164,33 +183,72 @@ impl From<&ast::PointerType> for PointerType {
     }
 }
 
+/// A type that is stored in the internment arena
 #[derive(Debug, Clone, Copy, PartialEq, Hash, Eq)]
 pub struct Ty<'ty>(pub Int<'ty, TyKind<'ty>>);
 
 /// Semantic type values
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub enum TyKind<'ty> {
+    /// Primitive types such as integers and floats
     Primitive(PrimitiveType),
+
+    /// A placeholder for a type parameter
     Param(String),
+
+    /// A pointer type with the given mutability and inner type
     Pointer(PointerType, Ty<'ty>),
+
+    /// A tuple type
     Tuple(Vec<Ty<'ty>>),
+
+    /// A function type. This represents a function pointer with the given
+    /// parameters and return type.
     Fun(Vec<Ty<'ty>>, Ty<'ty>),
+
+    /// A sized array. It has a static size and inner type.
     SizedArray(usize, Ty<'ty>),
+
+    /// An unsized array. This is only used with a pointer to make a slice.
     UnsizedArray(Ty<'ty>),
+
+    /// A range type (`0..20`). For now the type should always be `usize`
     Range(Ty<'ty>),
+
+    /// An abstract datatype such as a struct or enum
     Adt(AdtType<'ty>),
+
+    /// A type variable which hasn't yet been resolved.  See [`infer`].
     TyVar(TyVarId),
+
+    /// A placeholder for types that are unknown due to a compile time error.
     Err,
 }
 
+/// An abstract datatype such as a struct or enum.  This contains the [`DefId`]
+/// of the data type it references along with any type parameters.  The [`Path`]
+/// field is used for debugging.
 #[derive(Debug, Clone, PartialEq, Hash, Eq)]
 pub struct AdtType<'ty> {
+    /// The [`DefId`] for the referenced datatype.
     pub def_id: DefId,
+
+    /// The [`Path`] for the referenced datatype (corresponds with `def_id`).
     pub path: Path,
+
+    /// Any type parameters for this abstract type. These are mapped to the
+    /// type params in the adt definition and used to resolve real types.
+    /// For example, an `AdtType` with `ty_params` of `[i32, u64]` referring to
+    /// a struct definition with signature `struct<T, U> {a: T, b: U}` will
+    /// replace the values of `T` and `U` with `i32` and `u64` respectively.
     pub ty_params: Vec<Ty<'ty>>,
 }
 
 impl<'ty> AdtType<'ty> {
+    /// Gets a the type of a field from an abstract datatype with all type
+    /// parameters replaced.  This function returns `Some` when the field exists
+    /// or `None` when it doesn't exist.  If this is called on an ADT referencing
+    /// an enum or function, it will panic.
     pub fn get_field(&self, md: &ir::Module<'ty>, field: &str) -> Option<Ty<'ty>> {
         match md.get_def_by_id(self.def_id).kind() {
             DefKind::Struct {
@@ -211,6 +269,10 @@ impl<'ty> AdtType<'ty> {
         }
     }
 
+    /// Gets a the type of a method from an abstract datatype with all type
+    /// parameters replaced.  This function returns `Some` when the method exists
+    /// or `None` when it doesn't exist.  If this is called on an ADT referencing
+    /// an function, it will panic.
     pub fn get_method_ty(&self, md: &ir::Module<'ty>, method: &str) -> Option<Ty<'ty>> {
         match md.get_def_by_id(self.def_id).kind() {
             DefKind::Enum {
@@ -234,6 +296,10 @@ impl<'ty> AdtType<'ty> {
         }
     }
 
+    /// Gets a the type and def_id of a method from an abstract datatype with all type
+    /// parameters replaced.  This function returns `Some` when the method exists
+    /// or `None` when it doesn't exist.  If this is called on an ADT referencing
+    /// an function, it will panic.
     pub fn get_method_ty_and_def_id(
         &self,
         md: &ir::Module<'ty>,
@@ -263,6 +329,8 @@ impl<'ty> AdtType<'ty> {
 }
 
 impl<'ty> Ty<'ty> {
+    /// Fully dereference a type by converting pointers to their inner values.
+    /// For example, `****T` becomes `T`.
     pub fn full_deref_ty(mut self) -> Ty<'ty> {
         while let TyKind::Pointer(_, ty) = self.0 .0 {
             self = *ty
@@ -270,6 +338,8 @@ impl<'ty> Ty<'ty> {
         self
     }
 
+    /// Dereference a type once.  Returns `None` if the type is not a pointer.
+    /// For example, `**T` becomes `*T`.
     pub fn deref_ty(self) -> Option<Ty<'ty>> {
         if let TyKind::Pointer(_, ty) = self.0 .0 {
             Some(*ty)
@@ -315,6 +385,7 @@ impl<'ty> Ty<'ty> {
         matches!(self.0 .0, TyKind::Primitive(x) if x.is_numeric())
     }
 
+    /// True if this type is an integer primitive with unknown size and sign
     pub fn is_integer_ukn(self) -> bool {
         matches!(self.0 .0, TyKind::Primitive(PrimitiveType::Integer))
     }
