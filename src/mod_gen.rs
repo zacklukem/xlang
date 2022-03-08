@@ -654,7 +654,6 @@ impl<'mg, 'ast, 'ty> ModGen<'mg, 'ast, 'ty> {
             self.err,
             def_id,
             params,
-            return_type,
             generics,
             stmt,
             tir,

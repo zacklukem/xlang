@@ -1,5 +1,5 @@
 use env_logger::Env;
-use log::LevelFilter;
+
 
 #[macro_use]
 extern crate lalrpop_util;

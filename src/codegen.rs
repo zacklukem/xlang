@@ -902,18 +902,18 @@ where
             }
             Discriminant(expr) => {
                 self.expr(expr, ty_params)?;
-                write!(self.f(), ".kind");
+                write!(self.f(), ".kind")?;
             }
             GetVariant(expr, variant_name) => {
                 self.expr(expr, ty_params)?;
-                write!(self.f(), ".{variant_name}");
+                write!(self.f(), ".{variant_name}")?;
             }
             DiscriminantValue(path) => {
-                write!(self.f(), "{}_k", mangle_path(path));
+                write!(self.f(), "{}_k", mangle_path(path))?;
             }
             TupleValue(expr, i) => {
                 self.expr(expr, ty_params)?;
-                write!(self.f(), "._{i}");
+                write!(self.f(), "._{i}")?;
             }
             Err => todo!(),
         }

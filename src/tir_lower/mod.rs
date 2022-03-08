@@ -24,7 +24,6 @@ pub fn lower_tir<'ty, 'mg>(
     err: &'mg mut ErrorContext,
     def_id: DefId,
     params: Vec<(String, Ty<'ty>)>,
-    return_type: Ty<'ty>,
     current_generics: Vec<String>,
     stmt: tir::Stmt<'ty>,
     tir: tir::TirCtx<'ty>,
@@ -36,12 +35,10 @@ pub fn lower_tir<'ty, 'mg>(
             var_id: 0,
             md: module,
             err,
-            params: params.iter().map(Clone::clone).collect(),
             scope: Box::new(Scope::from_params(params)),
             variable_defs: HashMap::new(),
             continue_break_label: Default::default(),
             label_next: None,
-            return_type,
             current_generics,
             tir,
         };
@@ -61,24 +58,12 @@ struct TirLower<'ty, 'mg> {
     md: &'mg Module<'ty>,
     tcx: TyCtx<'ty>,
     err: &'mg mut ErrorContext,
-
     usages: &'mg HashMap<String, Path>,
-
     scope: Box<Scope>,
-
-    /// types of variables (variable scoped)
-    params: HashMap<String, Ty<'ty>>,
-
     var_id: u32,
-
     variable_defs: HashMap<String, Ty<'ty>>,
-
     current_generics: Vec<String>,
-
-    return_type: Ty<'ty>,
-
     continue_break_label: Vec<String>,
     label_next: Option<String>,
-
     tir: tir::TirCtx<'ty>,
 }

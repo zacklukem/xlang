@@ -1,15 +1,7 @@
 use super::*;
-use crate::ast::Span;
+
 use crate::ir::AssignOp;
-use crate::tir_lower::helpers::map_to_vec;
-
-fn continue_label(v: &str) -> String {
-    format!("{}_continue", v)
-}
-
-fn break_label(v: &str) -> String {
-    format!("{}_break", v)
-}
+use crate::tir_lower::helpers::{break_label, continue_label, map_to_vec};
 
 impl<'ty, 'mg> TirLower<'ty, 'mg> {
     pub fn stmt(&mut self, stmt: &tir::Stmt<'ty>) -> LowerResult<ir::Stmt<'ty>> {

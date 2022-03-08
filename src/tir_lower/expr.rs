@@ -1,12 +1,10 @@
 use either::Either;
 
 use super::*;
-use crate::ty;
-use crate::{
-    ir::UnaryOp,
-    tir_lower::helpers::map_to_vec,
-    ty::{AdtType, TyKind},
-};
+
+use crate::ir::UnaryOp;
+use crate::tir_lower::helpers::map_to_vec;
+use crate::ty::TyKind;
 
 impl<'ty, 'mg> TirLower<'ty, 'mg> {
     pub fn expr(&mut self, expr: &tir::Expr<'ty>) -> LowerResult<ir::Expr<'ty>> {
@@ -76,7 +74,7 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                 ir::ExprKind::Cast(Box::new(expr), *ty)
             }
 
-            tir::ExprKind::Range(range) => todo!(),
+            tir::ExprKind::Range(_range) => todo!(),
 
             tir::ExprKind::Ternary {
                 condition,

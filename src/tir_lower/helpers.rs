@@ -2,11 +2,11 @@ use either::Either;
 
 use super::*;
 
-fn continue_label(v: &str) -> String {
+pub fn continue_label(v: &str) -> String {
     format!("{}_continue", v)
 }
 
-fn break_label(v: &str) -> String {
+pub fn break_label(v: &str) -> String {
     format!("{}_break", v)
 }
 
@@ -75,12 +75,12 @@ impl<'ty, 'ast, 'mg> TirLower<'ty, 'mg> {
         self.label_next = Some(label);
     }
 
-    pub fn replace_generics(&self, ty: Ty<'ty>, generics: &[(String, Ty<'ty>)]) -> Ty<'ty> {
-        crate::generics::replace_generics(self.md.ty_ctx(), ty, generics)
-    }
-
     /// Returns the type of the name and a boolean which is true if the name islocal scoped and false if it is global scoped
-    pub fn resolve_value(&self, name: &Path, generics: &[Ty<'ty>]) -> Option<Either<String, Path>> {
+    pub fn resolve_value(
+        &self,
+        name: &Path,
+        _generics: &[Ty<'ty>],
+    ) -> Option<Either<String, Path>> {
         if let Path::Terminal(id) = name {
             if let Some(var) = self.scope.resolve(id) {
                 return Some(Either::Left(var.clone()));
@@ -90,9 +90,9 @@ impl<'ty, 'ast, 'mg> TirLower<'ty, 'mg> {
             Some(Def {
                 kind:
                     DefKind::Fun {
-                        ty_params,
-                        params,
-                        return_type,
+                        ty_params: _,
+                        params: _,
+                        return_type: _,
                         ..
                     },
                 ..

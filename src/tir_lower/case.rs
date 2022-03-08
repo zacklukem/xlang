@@ -19,7 +19,7 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
 
         debug!("{expr_ty}");
 
-        let (enum_path, ty_param_tys) = match expr_ty.0 .0 {
+        let (_enum_path, ty_param_tys) = match expr_ty.0 .0 {
             TyKind::Adt(AdtType {
                 path, ty_params, ..
             }) => (path, ty_params),
@@ -54,7 +54,7 @@ impl<'ty, 'mg> TirLower<'ty, 'mg> {
                     let variant_name = path.end();
                     if let Some(ir::DefKind::Fun {
                         ty_params,
-                        return_type,
+                        return_type: _,
                         params,
                         ..
                     }) = def.map(ir::Def::kind)

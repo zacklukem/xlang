@@ -6,7 +6,7 @@ use super::*;
 use crate::error_context::ErrorContext;
 use crate::frontend::print_pass_errors_and_exit;
 use crate::generics::replace_generics;
-use crate::infer::solve::contains_ty_var;
+
 use crate::infer::*;
 use crate::intern::Int;
 use crate::ir;
@@ -598,7 +598,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
     fn solve(&mut self, stmt: &Stmt<'ty>) -> InferResult<()> {
         let replacement = match self.icx.solve() {
             Ok(s) => s,
-            Err(InferError::UnableToResolve(id)) => {
+            Err(InferError::UnableToResolve(_id)) => {
                 stmt.visit(&mut |_| {}, &mut |e| {
                     let ty = self.tir.get_ty(e.id());
                     // if contains_ty_var(id, ty) {
