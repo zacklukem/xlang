@@ -1,8 +1,0 @@
-
-fun main() -> i32 {
-    let k = 0;
-    for i in 0..10 {
-        k += 1;
-    }
-    ret k - 10;
-}
