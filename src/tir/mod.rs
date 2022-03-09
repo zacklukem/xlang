@@ -24,17 +24,17 @@ pub fn lower_and_type_ast<'ty>(
 ) -> Result<Stmt<'ty>, ModGenError> {
     let stmt = ast_lower::lower_ast(md, tir, err, usages, current_generics, fun_block)?;
     tir_infer::tir_infer(md, tir, err, return_type, params, &stmt)?;
-    // stmt.visit(&mut |_| {}, &mut |expr| {
-    //     if !tir.expr_tys.contains_key(&expr.id()) {
-    //         println!("UNTYPED: {:?}", expr);
-    //         expr.span().print_msg("UNTYPED!!", "ERROR!")
-    //     } else {
-    //         expr.span().print_msg(
-    //             &format!("{}", tir.get_ty(expr.id())),
-    //             &format!("{:?}", expr),
-    //         );
-    //     }
-    // });
+    stmt.visit(&mut |_| {}, &mut |expr| {
+        if !tir.expr_tys.contains_key(&expr.id()) {
+            println!("UNTYPED: {:?}", expr);
+            expr.span().print_msg("UNTYPED!!", "ERROR!")
+        } else {
+            expr.span().print_msg(
+                &format!("{}", tir.get_ty(expr.id())),
+                &format!("{:?}", expr),
+            );
+        }
+    });
     Ok(stmt)
 }
 

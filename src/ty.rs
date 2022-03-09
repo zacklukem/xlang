@@ -338,7 +338,9 @@ impl<'ty> Ty<'ty> {
     /// ```
     pub fn subtype_of(self, other: Ty<'ty>) -> bool {
         match (self.kind(), other.kind()) {
-            (TyKind::Primitive(lpt), TyKind::Primitive(rpt)) => lpt < rpt,
+            (TyKind::Primitive(lpt), TyKind::Primitive(rpt)) => {
+                lpt.is_integral() && rpt.is_integral() && lpt < rpt
+            }
             (
                 TyKind::Pointer(_, _),
                 TyKind::Pointer(_, Ty(Int(TyKind::Primitive(PrimitiveType::Void)))),
@@ -410,6 +412,11 @@ impl<'ty> Ty<'ty> {
     /// True if this type is an integer or floating point type
     pub fn is_numeric(self) -> bool {
         matches!(self.0 .0, TyKind::Primitive(x) if x.is_numeric())
+    }
+
+    /// True if this type is an integer
+    pub fn is_integral(self) -> bool {
+        matches!(self.0 .0, TyKind::Primitive(x) if x.is_integral())
     }
 
     /// True if this type is an integer primitive with unknown size and sign

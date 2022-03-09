@@ -12,7 +12,6 @@ use crate::ast::Span;
 use crate::error_context::ErrorContext;
 use crate::intern::Int;
 use crate::ir;
-use crate::tir::tir_infer::replace_ty_int;
 use crate::ty::{AdtType, Ty, TyCtx, TyKind};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -84,10 +83,18 @@ impl TyVarId {
 /// then if any constraints contradict each-other an error should be emitted
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Constraint<'ty> {
+    /// `{0}` is an integral type
+    Integral(Ty<'ty>),
+
+    /// `{0}` is a subtype of `{1}`
+    Subtype(Ty<'ty>, Ty<'ty>),
+
     /// `{0}` equals `{1}`
     Eq(Ty<'ty>, Ty<'ty>),
+
     /// `{0}` has field named `{1}` with type `{2}`
     Field(Ty<'ty>, String, Ty<'ty>),
+
     /// `{0}` has method named `{1}` with type `{2}`
     ///
     /// Example of use:
@@ -119,9 +126,11 @@ impl<'ty> Constraint<'ty> {
 impl<'ty> Display for Constraint<'ty> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Constraint::Eq(lhs, rhs) => write!(f, "{lhs} === {rhs}"),
-            Constraint::Field(lhs, field, rhs) => write!(f, "{lhs}.{field} === {rhs}"),
-            Constraint::Method(lhs, field, rhs) => write!(f, "{lhs}.{field}(..) === {rhs}"),
+            Constraint::Integral(lhs) => write!(f, "Integral({lhs})"),
+            Constraint::Subtype(lhs, rhs) => write!(f, "{lhs} <: {rhs}"),
+            Constraint::Eq(lhs, rhs) => write!(f, "{lhs} = {rhs}"),
+            Constraint::Field(lhs, field, rhs) => write!(f, "{lhs}.{field} = {rhs}"),
+            Constraint::Method(lhs, field, rhs) => write!(f, "{lhs}.{field}(..) = {rhs}"),
         }
     }
 }
@@ -132,6 +141,9 @@ pub struct InferCtx<'mg, 'ty> {
 
     /// This represents the next type variable id to be created.
     next_id: Cell<u32>,
+
+    /// This represents the next type variable id to be created.
+    next_int_id: Cell<u32>,
 
     /// This contains a list of all type variables created.
     ty_vars: RefCell<Vec<TyVarId>>,
@@ -155,6 +167,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         InferCtx {
             ctx: md.ty_ctx(),
             next_id: Cell::new(0),
+            next_int_id: Cell::new(0),
             constraints: Default::default(),
             ty_vars: Default::default(),
             md,
@@ -224,6 +237,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             TyKind::Pointer(..) => {
                 panic!("Deref failed");
             }
+
             TyKind::Primitive(..)
             | TyKind::Tuple(..)
             | TyKind::Fun(..)
@@ -236,6 +250,20 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             TyKind::Err => (),
         }
         Ok(())
+    }
+
+    /// Create a new integral constraint.
+    ///
+    /// ty is an integral type
+    pub fn integral(&mut self, ty: Ty<'ty>) -> InferResult<()> {
+        match ty.kind() {
+            TyKind::TyVar(_) => {
+                self.constraints.push(Constraint::Integral(ty));
+                Ok(())
+            }
+            TyKind::Primitive(ty) if ty.is_integral() => Ok(()),
+            _ => Err(MismatchedTypes("Expected integral".to_owned())),
+        }
     }
 
     /// Create a new [`Constraint::Eq`] constraint.
@@ -314,10 +342,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                 }
             }
             (TyKind::Primitive(l_pt), TyKind::Primitive(r_pt)) => {
-                // TODO: make this less... wrong
-                if l_pt.is_integral() && r_pt.is_integral() {
-                    Ok(())
-                } else if l_pt != r_pt {
+                if l_pt != r_pt {
                     Err(mismatch())
                 } else {
                     Ok(())
@@ -335,19 +360,32 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     /// with the result of the [`InferCtx::solve`] function and will replace all
     /// constraint types with definite types then assert that all the Constraints
     /// are correct.
-    pub fn check(&self, replacement: &HashMap<TyVarId, Ty<'ty>>) -> InferResult<()> {
+    pub fn check(&self, replacement: &SolveReplacements<'ty>) -> InferResult<()> {
         for constraint in &self.constraints {
             match constraint {
+                Constraint::Integral(lhs) => {
+                    let lhs = replace_ty_vars(self.ctx, replacement, *lhs);
+                    if !lhs.is_integral() {
+                        panic!("not integral: {}", lhs);
+                    }
+                }
                 Constraint::Eq(lhs, rhs) => {
-                    let lhs = replace_ty_int(self.ctx, replacement, *lhs);
-                    let rhs = replace_ty_int(self.ctx, replacement, *rhs);
+                    let lhs = replace_ty_vars(self.ctx, replacement, *lhs);
+                    let rhs = replace_ty_vars(self.ctx, replacement, *rhs);
                     if lhs != rhs {
                         panic!("{} != {}", lhs, rhs);
                     }
                 }
+                Constraint::Subtype(lhs, rhs) => {
+                    let lhs = replace_ty_vars(self.ctx, replacement, *lhs);
+                    let rhs = replace_ty_vars(self.ctx, replacement, *rhs);
+                    if lhs.subtype_of(rhs) {
+                        panic!("{} != {}", lhs, rhs);
+                    }
+                }
                 Constraint::Field(expr, field, ty) => {
-                    let expr = replace_ty_int(self.ctx, replacement, *expr);
-                    let ty = replace_ty_int(self.ctx, replacement, *ty);
+                    let expr = replace_ty_vars(self.ctx, replacement, *expr);
+                    let ty = replace_ty_vars(self.ctx, replacement, *ty);
                     if let TyKind::Adt(adt) = expr.full_deref_ty().0 .0 {
                         if let Some(fty) = adt.get_field(self.md, field) {
                             assert_eq!(ty, fty);
@@ -359,8 +397,8 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
                     }
                 }
                 Constraint::Method(expr, method, ty) => {
-                    let expr = replace_ty_int(self.ctx, replacement, *expr);
-                    let ty = replace_ty_int(self.ctx, replacement, *ty);
+                    let expr = replace_ty_vars(self.ctx, replacement, *expr);
+                    let ty = replace_ty_vars(self.ctx, replacement, *ty);
                     if let TyKind::Adt(adt) = expr.full_deref_ty().0 .0 {
                         if let Some(mty) = adt.get_method_ty(self.md, method) {
                             assert_eq!(ty, mty);
@@ -395,4 +433,60 @@ pub fn is_definite_ty(ty: Ty) -> bool {
         TyKind::TyVar(_) => false,
         TyKind::Primitive(_) | TyKind::Param(_) | TyKind::Err => true,
     }
+}
+
+/// The result of a solve which contains the replacement values for type vars
+#[derive(Debug, Default)]
+pub struct SolveReplacements<'ty> {
+    /// Type var replacements
+    pub ty_vars: HashMap<TyVarId, Ty<'ty>>,
+}
+
+/// Replace all type variables in a given type using the given replacements
+pub fn replace_ty_vars<'ty>(
+    tcx: TyCtx<'ty>,
+    replacement: &SolveReplacements<'ty>,
+    ty: Ty<'ty>,
+) -> Ty<'ty> {
+    let kind = match ty.0 .0 {
+        TyKind::Pointer(pt, ty) => TyKind::Pointer(*pt, replace_ty_vars(tcx, replacement, *ty)),
+        TyKind::Range(ty) => TyKind::Range(replace_ty_vars(tcx, replacement, *ty)),
+        TyKind::SizedArray(size, ty) => {
+            TyKind::SizedArray(*size, replace_ty_vars(tcx, replacement, *ty))
+        }
+        TyKind::UnsizedArray(ty) => TyKind::UnsizedArray(replace_ty_vars(tcx, replacement, *ty)),
+
+        TyKind::Tuple(tys) => TyKind::Tuple(
+            tys.iter()
+                .map(|ty| replace_ty_vars(tcx, replacement, *ty))
+                .collect(),
+        ),
+        TyKind::Adt(AdtType {
+            ty_params,
+            path,
+            def_id,
+        }) => {
+            let ty_params = ty_params
+                .iter()
+                .map(|ty| replace_ty_vars(tcx, replacement, *ty))
+                .collect();
+            let path = path.clone();
+            let def_id = *def_id;
+            TyKind::Adt(AdtType {
+                ty_params,
+                path,
+                def_id,
+            })
+        }
+        TyKind::Fun(tys, ty) => {
+            let tys = tys
+                .iter()
+                .map(|ty| replace_ty_vars(tcx, replacement, *ty))
+                .collect();
+            TyKind::Fun(tys, replace_ty_vars(tcx, replacement, *ty))
+        }
+        TyKind::Primitive(_) | TyKind::Param(_) | TyKind::Err => return ty,
+        TyKind::TyVar(var_id) => return *replacement.ty_vars.get(var_id).unwrap(),
+    };
+    tcx.int(kind)
 }

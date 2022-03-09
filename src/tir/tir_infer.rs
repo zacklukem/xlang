@@ -7,6 +7,7 @@ use crate::error_context::ErrorContext;
 use crate::frontend::print_pass_errors_and_exit;
 use crate::generics::replace_generics;
 
+use crate::infer::solve::contains_ty_var;
 use crate::infer::*;
 use crate::intern::Int;
 use crate::ir;
@@ -577,7 +578,10 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                         ty::PrimitiveType::Integer
                     }
                 };
-                ty::primitive_ty(self.tcx, pt)
+                // TODO: use definite type where possible
+                let ty = self.icx.mk_var();
+                self.icx.integral(ty).emit(self.err, expr.span()).ok();
+                ty
             }
             Float(val) => {
                 let pt = match val {
@@ -598,13 +602,13 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
     fn solve(&mut self, stmt: &Stmt<'ty>) -> InferResult<()> {
         let replacement = match self.icx.solve() {
             Ok(s) => s,
-            Err(InferError::UnableToResolve(_id)) => {
+            Err(InferError::UnableToResolve(id)) => {
                 stmt.visit(&mut |_| {}, &mut |e| {
                     let ty = self.tir.get_ty(e.id());
-                    // if contains_ty_var(id, ty) {
-                    self.err
-                        .err(format!("Unable to resolve type: {ty}"), e.span());
-                    // }
+                    if contains_ty_var(id, ty) {
+                        self.err
+                            .err(format!("Unable to resolve type: {ty}"), e.span());
+                    }
                 });
                 debug!("{:?}", self.icx);
                 print_pass_errors_and_exit(self.err);
@@ -621,63 +625,15 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
             if let ExprKind::Ident(_, tys) = e.kind() {
                 let mut tys = tys.borrow_mut();
                 for ty in tys.iter_mut() {
-                    *ty = replace_ty_int(self.tcx, &replacement, *ty);
+                    *ty = replace_ty_vars(self.tcx, &replacement, *ty);
                 }
             }
         });
         for ty in self.tir.expr_tys.values_mut() {
-            *ty = replace_ty_int(self.tcx, &replacement, *ty);
+            *ty = replace_ty_vars(self.tcx, &replacement, *ty);
         }
         Ok(())
     }
-}
-
-pub fn replace_ty_int<'ty>(
-    tcx: TyCtx<'ty>,
-    replacement: &HashMap<TyVarId, Ty<'ty>>,
-    ty: Ty<'ty>,
-) -> Ty<'ty> {
-    let kind = match ty.0 .0 {
-        TyKind::Pointer(pt, ty) => TyKind::Pointer(*pt, replace_ty_int(tcx, replacement, *ty)),
-        TyKind::Range(ty) => TyKind::Range(replace_ty_int(tcx, replacement, *ty)),
-        TyKind::SizedArray(size, ty) => {
-            TyKind::SizedArray(*size, replace_ty_int(tcx, replacement, *ty))
-        }
-        TyKind::UnsizedArray(ty) => TyKind::UnsizedArray(replace_ty_int(tcx, replacement, *ty)),
-
-        TyKind::Tuple(tys) => TyKind::Tuple(
-            tys.iter()
-                .map(|ty| replace_ty_int(tcx, replacement, *ty))
-                .collect(),
-        ),
-        TyKind::Adt(AdtType {
-            ty_params,
-            path,
-            def_id,
-        }) => {
-            let ty_params = ty_params
-                .iter()
-                .map(|ty| replace_ty_int(tcx, replacement, *ty))
-                .collect();
-            let path = path.clone();
-            let def_id = *def_id;
-            TyKind::Adt(AdtType {
-                ty_params,
-                path,
-                def_id,
-            })
-        }
-        TyKind::Fun(tys, ty) => {
-            let tys = tys
-                .iter()
-                .map(|ty| replace_ty_int(tcx, replacement, *ty))
-                .collect();
-            TyKind::Fun(tys, replace_ty_int(tcx, replacement, *ty))
-        }
-        TyKind::Primitive(_) | TyKind::Param(_) | TyKind::Err => return ty,
-        TyKind::TyVar(var_id) => return *replacement.get(var_id).unwrap(),
-    };
-    tcx.int(kind)
 }
 
 #[derive(Debug, Default)]

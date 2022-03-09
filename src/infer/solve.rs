@@ -29,6 +29,10 @@
 
 use std::collections::HashSet;
 
+use log::debug;
+
+use crate::ty::{self, PrimitiveType};
+
 use super::*;
 
 type VarCache<'ty> = HashMap<TyVarId, Ty<'ty>>;
@@ -51,6 +55,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         self.constraints = values.drain().collect();
     }
 
+    /// Solve a type that may contain type vars
     fn solve_ty(
         &self,
         constraints: &[Constraint<'ty>],
@@ -107,6 +112,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         Some(self.ctx.int(kind))
     }
 
+    /// Solve for a given type var with the given constraints
     fn solve_for(
         &self,
         constraints: &[Constraint<'ty>],
@@ -189,7 +195,7 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
     /// Returns a map of type variables to definite types.
     ///
     /// See [`infer::solve`] for details.
-    pub fn solve(&mut self) -> InferResult<HashMap<TyVarId, Ty<'ty>>> {
+    pub fn solve(&mut self) -> InferResult<SolveReplacements<'ty>> {
         self.clean_constraints();
 
         {
@@ -214,41 +220,57 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             }
         }
 
-        self.clean_constraints();
-
         let mut cache = HashMap::new();
-        let mut vars = HashMap::with_capacity(self.ty_vars.borrow().len());
-        for var in self.ty_vars.borrow().iter() {
-            let mut visited = HashSet::new();
-            let val = self.solve_for(&self.constraints, &mut visited, &mut cache, *var);
-            vars.insert(*var, val);
-        }
+        let mut vars: HashMap<TyVarId, Option<Ty<'ty>>> =
+            HashMap::with_capacity(self.ty_vars.borrow().len());
 
-        // TODO: maybe dont copy the constraints..
-        for constraint in self.constraints.clone().into_iter() {
-            match constraint {
-                Constraint::Method(ty, method, target_ty) => {
+        // TODO: this is probably pretty slow...
+        for _ in 0..20 {
+            self.clean_constraints();
+
+            for var in self.ty_vars.borrow().iter() {
+                if !vars.contains_key(var) || vars[var].is_none() {
                     let mut visited = HashSet::new();
-                    let struct_ty = self.solve_ty(&self.constraints, &mut visited, &mut cache, ty);
-                    if let Some(Ty(Int(TyKind::Adt(adt)))) = struct_ty {
-                        if let Some(method_ty) = adt.get_method_ty(self.md, &method) {
-                            self.eq(method_ty, target_ty)?;
+                    let val = self.solve_for(&self.constraints, &mut visited, &mut cache, *var);
+                    vars.insert(*var, val);
+                }
+            }
+
+            self.clean_constraints();
+
+            // TODO: maybe dont copy the constraints..
+            for constraint in self.constraints.clone().into_iter() {
+                match constraint {
+                    Constraint::Method(ty, method, target_ty) => {
+                        let mut visited = HashSet::new();
+                        let struct_ty =
+                            self.solve_ty(&self.constraints, &mut visited, &mut cache, ty);
+                        if let Some(Ty(Int(TyKind::Adt(adt)))) = struct_ty {
+                            if let Some(method_ty) = adt.get_method_ty(self.md, &method) {
+                                self.eq(method_ty, target_ty)?;
+                            }
                         }
                     }
+                    _ => (),
                 }
-                _ => (),
             }
-        }
 
-        self.clean_constraints();
+            for constraint in self.constraints.clone().into_iter() {
+                if let Constraint::Integral(Ty(Int(TyKind::TyVar(ty_var)))) = constraint {
+                    if vars.get(ty_var).unwrap().is_none() {
+                        vars.insert(
+                            *ty_var,
+                            Some(ty::primitive_ty(self.ctx, PrimitiveType::I32)),
+                        );
+                        let ty_var = self.ctx.int(TyKind::TyVar(*ty_var));
+                        self.eq(ty_var, ty::primitive_ty(self.ctx, PrimitiveType::I32))
+                            .unwrap();
+                    }
+                }
+            }
 
-        let mut cache = HashMap::new();
-        let mut vars = HashMap::with_capacity(self.ty_vars.borrow().len());
-        for var in self.ty_vars.borrow().iter() {
-            if !vars.contains_key(var) {
-                let mut visited = HashSet::new();
-                let val = self.solve_for(&self.constraints, &mut visited, &mut cache, *var);
-                vars.insert(*var, val);
+            if vars.values().all(|v| v.is_some()) {
+                break;
             }
         }
 
@@ -258,14 +280,23 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
             }
         }
 
-        Ok(vars
-            .into_iter()
-            .filter(|(_, b)| b.is_some())
-            .map(|(a, b)| (a, b.unwrap()))
-            .collect())
+        let out = SolveReplacements {
+            ty_vars: vars
+                .into_iter()
+                .filter(|(_, b)| b.is_some())
+                .map(|(a, b)| (a, b.unwrap()))
+                .collect(),
+        };
+
+        debug!("ASDFASDF");
+        debug!("Self {:#?}", self);
+        debug!("Out {:#?}", out);
+
+        Ok(out)
     }
 }
 
+/// Returns true if the given type contains the given type var
 pub fn contains_ty_var<'ty>(id: TyVarId, ty: Ty<'ty>) -> bool {
     match ty.0 .0 {
         TyKind::Tuple(tys) | TyKind::Adt(AdtType { ty_params: tys, .. }) => {
@@ -282,7 +313,6 @@ pub fn contains_ty_var<'ty>(id: TyVarId, ty: Ty<'ty>) -> bool {
         }
 
         TyKind::TyVar(var_id) => *var_id == id,
-
         TyKind::Primitive(_) | TyKind::Param(_) | TyKind::Err => false,
     }
 }
@@ -365,10 +395,7 @@ fn unify<'ty>(
             }
         }
         (TyKind::Primitive(l_pt), TyKind::Primitive(r_pt)) => {
-            // TODO: make this less... wrong
-            if l_pt.is_integral() && r_pt.is_integral() {
-                Ok(())
-            } else if l_pt != r_pt {
+            if l_pt != r_pt {
                 Err(mismatch())
             } else {
                 Ok(())
