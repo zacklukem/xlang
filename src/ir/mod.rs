@@ -10,17 +10,29 @@ use crate::ty::{Ty, TyCtx, TyKind};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
+/// An id that uniquely identifies each expression. This is used to give types
+/// to IR expressions. An ExprId is generated when an expression is created
+/// using the [`Module::mk_expr`] function.
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ExprId(u32);
 
+/// A high level function body in the IR.  This contains the [`DefId`]
+/// of the function, a list of function-scoped variable definitions and an ir
+/// [`Stmt`] block for the actual code.
 pub struct Fun<'ty> {
+    /// The [`DefId`] of the function
     pub def_id: DefId,
+    /// Used for debugging.
     pub db_name: String,
+    /// The variable definitions for this function. Since variables in the IR
+    /// are all function-scoped, there is only one list of variable definitions
+    /// per function which are initialized in the function body.
     pub variable_defs: Vec<(String, Ty<'ty>)>,
+    /// The function body
     pub block: Stmt<'ty>,
 }
 
-/// Represents a definition (struct, mod, or fun)
+/// A definition (struct, mod, or fun)
 ///
 /// Generate using `Module::get_def_id` or other `Module` declaration functions
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -33,10 +45,14 @@ pub enum DefVisibility {
     Private,
 }
 
+/// A top-level definition such as a structure, enum or function.
 #[derive(Debug)]
 pub struct Def<'ty> {
+    /// The visibility of the definition (public or private)
     pub visibility: DefVisibility,
+    /// The actual data
     pub kind: DefKind<'ty>,
+    /// If this definition is external (applies only to functions)
     pub external: bool,
 }
 
@@ -49,6 +65,7 @@ impl<'ty> Def<'ty> {
         }
     }
 
+    /// Create an external def
     pub fn new_extern(visibility: DefVisibility, kind: DefKind) -> Def {
         Def {
             visibility,
@@ -57,6 +74,7 @@ impl<'ty> Def<'ty> {
         }
     }
 
+    /// Get the fields from a structure if this is a structure, otherwise return [`None`].
     pub fn get_struct_fields(
         &self,
     ) -> Option<(
@@ -76,6 +94,8 @@ impl<'ty> Def<'ty> {
         }
     }
 
+    /// If this is a function, return the type of the function as a function pointer
+    /// otherwise return [`None`]
     pub fn fn_type(&self, tcx: TyCtx<'ty>, generics: &[Ty<'ty>]) -> Option<Ty<'ty>> {
         if let DefKind::Fun {
             ty_params,
@@ -107,11 +127,23 @@ impl<'ty> Def<'ty> {
     }
 }
 
+/// The kind of extern function
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum ExternKind {
+    /// External functions which will be declared in the output C
+    /// header, but not defined
     Declare,
+
+    /// Special functions such as `sizeof` which will be inlined by
+    /// the compiler
     Intrinsic,
+
+    /// Constructors for variants which will be declared in the output
+    /// C header but contain no IR for the body as the body is generated in the
+    /// codegen stage.
     VariantConstructor,
+
+    /// This represents non-external functions which will be defined
     Define,
 }
 
@@ -123,19 +155,33 @@ impl Default for ExternKind {
 
 #[derive(Debug)]
 pub enum DefKind<'ty> {
-    Mod {
-        symbols: HashMap<String, DefId>,
-    },
+    /// A module (namespace).  This is just a list of the symbols in a module
+    /// used to enumerate all members in a module.
+    Mod { symbols: HashMap<String, DefId> },
+
+    /// An enum (variant) definition
     Enum {
         ty_params: Vec<String>,
         variants: HashMap<String, Ty<'ty>>,
         symbols: HashMap<String, DefId>,
     },
+
+    /// A struct definition
     Struct {
+        /// The named type parameters in the struct definition
         ty_params: Vec<String>,
+
+        /// The fields in a structure
         members: HashMap<String, Ty<'ty>>,
+
+        /// The functions in this structure
+        ///
+        /// Because structures also act as modules and can contain functions,
+        /// we need to keep a list of these.
         symbols: HashMap<String, DefId>,
     },
+
+    /// A function definition
     Fun {
         external: ExternKind,
         ty_params: Vec<String>,
@@ -144,6 +190,9 @@ pub enum DefKind<'ty> {
     },
 }
 
+/// A path identifies a definition by its parent modules.
+///
+/// Paths stored in the IR should be fully qualified
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Path {
     Terminal(String),
@@ -165,11 +214,53 @@ impl std::fmt::Display for Path {
 }
 
 impl Path {
+    /// Create a path from a list of segments.  The list of segments must not be
+    /// empty.
+    ///
+    /// ```
+    /// use Path::*;
+    /// let path = Path::from_segments(&["first", "second", "third"]);
+    /// assert_eq!(
+    ///     path,
+    ///     Namespace(
+    ///         "first".to_string(),
+    ///         Box::new(Namespace(
+    ///             "second".to_string(),
+    ///             Box::new(Terminal("third".to_string())),
+    ///         )),
+    ///     ),
+    /// );
+    /// ```
+    pub fn from_segments(segments: &[&str]) -> Path {
+        assert!(!segments.is_empty());
+        let mut iter = segments.iter().rev();
+        let mut out = Path::Terminal(iter.next().unwrap().to_string());
+        for segment in iter {
+            out = Path::Namespace(segment.to_string(), Box::new(out));
+        }
+        out
+    }
+
+    /// Returns true if this is a terminal path (it has no parent)
     pub fn is_terminal(&self) -> bool {
         use Path::*;
         matches!(self, Terminal(_))
     }
 
+    /// Get the tail of a path segment (pops the first element)
+    ///
+    /// Returns [`None`] if the path has only one segment
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["first", "second", "third"]).tail(),
+    ///     Some(&Path::from_segments(&["second", "third"])),
+    /// );
+    /// assert_eq!(
+    ///     Path::from_segments(&["first"]).tail(),
+    ///     None,
+    /// );
+    /// ```
     pub fn tail(&self) -> Option<&Path> {
         use Path::*;
         match self {
@@ -178,6 +269,16 @@ impl Path {
         }
     }
 
+    /// Append a path to the end of another
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["a", "b", "c", "d"]),
+    ///     Path::from_segments(&["a", "b"]).append(
+    ///         Path::from_segments(&["c", "d"]),
+    ///     ),
+    /// );
+    /// ```
     pub fn append(&self, end: Path) -> Path {
         use Path::*;
         match self {
@@ -186,6 +287,14 @@ impl Path {
         }
     }
 
+    /// Create a new path with the given segment at the end
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["a", "b"]),
+    ///     Path::from_segments(&["a"]).push_end("b".to_string());
+    /// );
+    /// ```
     pub fn push_end(&self, end: String) -> Path {
         use Path::*;
         match self {
@@ -194,6 +303,19 @@ impl Path {
         }
     }
 
+    /// Pop the end from a path.  Returns [`None`] if the path has only one
+    /// segment.
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["a", "b"]).pop_end(),
+    ///     Some(Path::from_segments(&["a"])),
+    /// );
+    /// assert_eq!(
+    ///     Path::from_segments(&["a"]).pop_end(),
+    ///     None,
+    /// );
+    /// ```
     pub fn pop_end(&self) -> Option<Path> {
         use Path::*;
         match self {
@@ -205,6 +327,14 @@ impl Path {
         }
     }
 
+    /// Gets the first segment of a path
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["a", "b"]).first(),
+    ///     "a".to_string,
+    /// );
+    /// ```
     pub fn first(&self) -> &String {
         use Path::*;
         match self {
@@ -213,6 +343,14 @@ impl Path {
         }
     }
 
+    /// Gets the last segment of a path
+    ///
+    /// ```
+    /// assert_eq!(
+    ///     Path::from_segments(&["a", "b"]).first(),
+    ///     "b".to_string,
+    /// );
+    /// ```
     pub fn end(&self) -> &String {
         use Path::*;
         match self {
@@ -229,6 +367,8 @@ pub enum DefineErr {
     DeclareOnFun,
 }
 
+/// The overall IR module.  This is contains all the definitions for a program,
+/// the types of all expressions, and all function bodies.
 #[derive(Debug)]
 pub struct Module<'ty> {
     next_id: u32,
@@ -258,6 +398,7 @@ impl<'ty> Module<'ty> {
         }
     }
 
+    /// Set the type of an expression
     pub fn set_ty<E>(&self, expr: E, ty: Ty<'ty>)
     where
         E: Into<ExprId>,
@@ -265,6 +406,7 @@ impl<'ty> Module<'ty> {
         self.expr_tys.borrow_mut().insert(expr.into(), ty);
     }
 
+    /// Get the type of an expression.  Panics if the expression has no type
     pub fn ty_of<E>(&self, expr: E) -> Ty<'ty>
     where
         E: Into<ExprId>,
@@ -276,10 +418,12 @@ impl<'ty> Module<'ty> {
             .expect("Internal error")
     }
 
+    /// Get an iterator over all the defs in this module
     pub fn defs_iter<'a>(&'a self) -> std::collections::hash_map::Iter<'a, DefId, Def<'ty>> {
         self.defs.iter()
     }
 
+    /// Get a new unique [`DefId`]
     pub fn get_def_id(&mut self) -> DefId {
         let id = self.next_id;
         self.next_id += 1;
@@ -297,6 +441,7 @@ impl<'ty> Module<'ty> {
         self.path_defs.insert(id, path);
     }
 
+    /// Declare a new definition with the given path and [`DefId`]
     pub fn declare_with(
         &mut self,
         path: Path,
@@ -326,31 +471,39 @@ impl<'ty> Module<'ty> {
         }
     }
 
+    /// Declare a new definition with the given path and generate a new unique
+    /// [`DefId`]
     pub fn declare(&mut self, path: Path, def: Def<'ty>) -> Result<DefId, DefineErr> {
         let id = self.get_def_id();
         self.declare_with(path, id, def)
     }
 
+    /// Get a definition by its [`DefId`]
     pub fn get_def_by_id(&self, id: DefId) -> &Def<'ty> {
         self.defs.get(&id).unwrap()
     }
 
+    /// Get a mutable reference to a definition by its [`DefId`]
     pub fn get_mut_def_by_id(&mut self, id: DefId) -> &mut Def<'ty> {
         self.defs.get_mut(&id).unwrap()
     }
 
+    /// Get the [`DefId`] that corresponds to the given path
     pub fn get_def_id_by_path(&self, path: &Path) -> Option<DefId> {
         self.def_paths.get(path).map(Clone::clone)
     }
 
+    /// Get a definition by its path
     pub fn get_def_by_path(&self, path: &Path) -> Option<&Def<'ty>> {
         self.def_paths.get(path).map(|id| self.get_def_by_id(*id))
     }
 
+    /// Get a mutable reference to a definition by its path
     pub fn get_mut_def_by_path(&mut self, path: &Path) -> Option<&mut Def<'ty>> {
         Some(self.get_mut_def_by_id(*self.def_paths.get(path)?))
     }
 
+    /// Get the path that corresponds to a given [`DefId`]
     pub fn get_path_by_def_id(&self, id: DefId) -> &Path {
         self.path_defs.get(&id).unwrap()
     }
@@ -366,6 +519,7 @@ impl<'ty> Module<'ty> {
     }
 }
 
+/// Represents a statement
 #[derive(Debug)]
 pub struct Stmt<'ty> {
     pub kind: StmtKind<'ty>,
@@ -378,6 +532,7 @@ impl Stmt<'_> {
     }
 }
 
+/// The type of a symbol passed to an inline C statement
 #[derive(Debug, Clone, Copy)]
 pub enum InlineCParamType {
     Var,
@@ -395,6 +550,7 @@ impl From<&ast::InlineCParamType> for InlineCParamType {
 
 #[derive(Debug)]
 pub enum StmtKind<'ty> {
+    /// Inline c code
     InlineC {
         inputs: Vec<(InlineCParamType, String, String)>,
         outputs: Vec<(String, InlineCParamType, String)>,
@@ -425,9 +581,11 @@ pub enum StmtKind<'ty> {
         default: Option<Box<Stmt<'ty>>>,
     },
 
+    /// A labeled statement or a label at the end of a block
     Labeled(String, Option<Box<Stmt<'ty>>>),
 
     Block(Vec<Stmt<'ty>>),
+    /// A list of statements that are not put in any particular block
     StmtList(Vec<Stmt<'ty>>),
     Return(Option<Box<Expr<'ty>>>),
     Goto(String),
@@ -435,13 +593,12 @@ pub enum StmtKind<'ty> {
     Expr(Box<Expr<'ty>>),
 }
 
+/// An expression
 #[derive(Debug, Clone)]
 pub struct Expr<'ty> {
     pub kind: ExprKind<'ty>,
     pub span: Span,
     pub id: ExprId,
-    /// Field to pass to first arg of function
-    pub fun_pass: Option<Box<Expr<'ty>>>,
 }
 
 impl<'a, 'ty> From<&'a Expr<'ty>> for ExprId {
@@ -451,6 +608,10 @@ impl<'a, 'ty> From<&'a Expr<'ty>> for ExprId {
 }
 
 impl<'ty> Expr<'ty> {
+    /// Coerce an reference expression to the given reference level
+    ///
+    /// For example, an expression `expr` of type `****T` called with `coerce_ref(.., 3)`
+    /// becomes an expression `*expr` with type `***T`
     pub fn coerce_ref(mut self, md: &Module<'ty>, level: u8) -> Expr<'ty> {
         let ref_level = md.ty_of(&self).ref_level();
         // Number of refs/derefs (-2 means deref twice), (+2 means ref twice)
@@ -474,14 +635,6 @@ impl<'ty> Expr<'ty> {
         }
     }
 
-    pub fn fun_pass(&self) -> &Option<Box<Expr>> {
-        &self.fun_pass
-    }
-
-    pub fn fun_pass_mut(&mut self) -> &mut Option<Box<Expr<'ty>>> {
-        &mut self.fun_pass
-    }
-
     pub fn kind(&self) -> &ExprKind {
         &self.kind
     }
@@ -490,10 +643,12 @@ impl<'ty> Expr<'ty> {
         &self.span
     }
 
+    /// Turn this expression into an expr stmt without wrapping in stmt
     pub fn stmt_kind(self) -> StmtKind<'ty> {
         StmtKind::Expr(Box::new(self))
     }
 
+    /// Turn this expression into an expr stmt
     pub fn stmt(self) -> Stmt<'ty> {
         let span = self.span.clone();
         Stmt::new(self.stmt_kind(), span)
@@ -647,15 +802,24 @@ pub enum ExprKind<'ty> {
     /// `TupleValue(expr, 0)` compiles to something like `expr._0`
     TupleValue(Box<Expr<'ty>>, u8),
 
+    /// This represents a function-scoped variable
     Ident(String),
+    /// This represents a globally scoped path to a definition with type params
     GlobalIdent(Path, Vec<Ty<'ty>>),
+
+    /// An integer literal
     Integer(IntegerSpecifier),
+    /// A float literal
     Float(FloatSpecifier),
+    /// A string literal
     String(String),
+    /// A boolean literal
     Bool(bool),
 
+    /// A null literal
     Null,
 
+    /// A tuple constructor
     Tuple(Vec<Expr<'ty>>),
 
     Assign(Box<Expr<'ty>>, AssignOp, Box<Expr<'ty>>),
