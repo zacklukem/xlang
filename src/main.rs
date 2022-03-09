@@ -23,7 +23,11 @@ pub mod tir_lower;
 pub mod ty;
 pub mod ty_mangle;
 
-lalrpop_mod!(#[allow(clippy::all)] pub parser);
+lalrpop_mod!(
+    #[doc(hidden)]
+    #[allow(clippy::all)]
+    pub parser
+);
 
 fn main() {
     let logger = Env::new().filter_or("RUST_LOG", "TRACE");
