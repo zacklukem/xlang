@@ -142,9 +142,6 @@ pub struct InferCtx<'mg, 'ty> {
     /// This represents the next type variable id to be created.
     next_id: Cell<u32>,
 
-    /// This represents the next type variable id to be created.
-    next_int_id: Cell<u32>,
-
     /// This contains a list of all type variables created.
     ty_vars: RefCell<Vec<TyVarId>>,
 
@@ -167,7 +164,6 @@ impl<'mg, 'ty> InferCtx<'mg, 'ty> {
         InferCtx {
             ctx: md.ty_ctx(),
             next_id: Cell::new(0),
-            next_int_id: Cell::new(0),
             constraints: Default::default(),
             ty_vars: Default::default(),
             md,

@@ -564,7 +564,7 @@ impl<'a, 'ty> TirInfer<'a, 'ty> {
                 }
             }
             Integer(val) => {
-                let pt = match val {
+                let _pt = match val {
                     IntegerSpecifier::I8(_) => ty::PrimitiveType::I8,
                     IntegerSpecifier::I16(_) => ty::PrimitiveType::I16,
                     IntegerSpecifier::I32(_) => ty::PrimitiveType::I32,
